@@ -1,0 +1,7 @@
+name = "LoxInterpreter"
+uuid = "de4cdc74-450e-4b0b-8704-7999a3240a15"
+authors = ["Penelope Yong <penelopeysm@gmail.com>"]
+version = "0.1.0"
+
+[compat]
+julia = "1.11"
