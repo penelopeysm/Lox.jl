@@ -19,7 +19,7 @@ To mitigate the TTFX on loading the REPL, you can also run
 
 ```julia
 using LoxInterpreter
-LoxInterpreter.run_prompt()
+run_prompt()
 ```
 
-using e.g. Revise.jl as usual.
+Ctrl-D will return you to the Julia REPL, where you can use e.g. Revise.jl as usual and call `run_prompt()` again.
