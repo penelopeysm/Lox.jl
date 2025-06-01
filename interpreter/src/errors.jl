@@ -1,20 +1,25 @@
 module Errors
 
-struct Location
-    file::String
-    line::Int
-end
-
 """
-    LoxError(...)
+    Location(file::String, line::Int)
 
-An error in Lox source code execution.
+A location in the source code, represented by a file name and a line number.
 
 TODO: Expand with more fields such as source code, column number, ...
 """
-struct LoxError
+struct Location
+    file::String
+    line::Integer
+end
+
+"""
+    LoxError
+
+An error in Lox source code execution.
+"""
+struct LoxError <: Exception
     location::Location
-    message::AbstractString
+    message::String
 end
 
 """
@@ -23,10 +28,10 @@ end
 Pretty-print a Lox error to the user.
 """
 function report_error(err::LoxError)
-    printstyled("Lox Error: ", bold=true, color=:red)
+    printstyled("Lox Error: ", bold = true, color = :red)
     println(err.message)
     print("    at: ")
-    printstyled("$(err.location.file):$(err.location.line)", color=:magenta)
+    printstyled("$(err.location.file):$(err.location.line)", color = :magenta)
     println()
 end
 

@@ -1,6 +1,6 @@
 module Main
 
-using ..Errors: LoxError, report_error
+using ..Errors: Location, LoxError, report_error
 
 @enum ExitCode begin
     ExitSuccess = 0
@@ -16,14 +16,17 @@ Execute a Lox source file.
 function run_file(filename::AbstractString)::Nothing
     try
         contents = strip(read(filename, String))
-        maybe_error = run(contents, filename)
+        location = Location(filename, 1)
+        maybe_error = run(contents, location)
         if maybe_error !== nothing
             report_error(maybe_error)
             exit(ExitRuntimeError)
         end
     catch e
         if e isa SystemError
-            report_error(LoxError("startup", 0, "Could not read file '$filename'"))
+            report_error(
+                LoxError(Location("startup", 0), "Could not read file '$filename'"),
+            )
             exit(ExitFileNotFound)
         end
         # Error in the compiler itself
@@ -43,8 +46,10 @@ TODO: Handle Ctrl-C (try/catch InterruptException doesn't seem to work)
 """
 function run_prompt()::Nothing
     println("Running prompt")
+    line_number = 1
     while true
         source = ""
+        nlines = 0
         print("lox> ")
         while !is_complete_lox_snippet(source)
             # NOTE: If it's not eof yet, eof() will block until it gets the
@@ -56,10 +61,12 @@ function run_prompt()::Nothing
             else
                 input = readline(stdin)
                 source *= (input * "\n")
+                nlines += 1
             end
         end
-        maybe_error = run(strip(source), "REPL")
-        maybe_error !== nothing && report_error(maybe_error)
+        source = strip(source)
+        isempty(source) || run(source, Location("REPL", line_number))
+        line_number += nlines
     end
 end
 
@@ -78,13 +85,27 @@ function is_complete_lox_snippet(source::AbstractString)::Bool
 end
 
 """
-    run(source::AbstractString, filename::AbstractString)::Union{Nothing, LoxError}
+    run(
+        source::AbstractString,
+        starting_location::Errors.Location
+    )::Union{Nothing, LoxError}
 
 Execute a Lox source code snippet. Returns `nothing` if successful, or a
 [`LoxError`](@ref) with diagnostic information if an error occurs.
+
+`starting_location` is the line number corresponding to the first line of the
+source.
 """
-function run(source::AbstractString, filename::AbstractString)::Union{Nothing, LoxError}
-    return LoxError(filename, 1, "Lox interpreter not yet implemented")
+function run(source::AbstractString, starting_location::Location)::Union{Nothing,LoxError}
+    try
+        throw(LoxError(starting_location, "Lox interpreter not yet implemented"))
+    catch e
+        if e isa LoxError
+            report_error(e)
+        else
+            rethrow(e)
+        end
+    end
 end
 
 end # module
