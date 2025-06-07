@@ -1,6 +1,7 @@
 module Main
 
 using ..Errors: Location, LoxError, report_error
+using ..Lexer: lex
 
 @enum ExitCode begin
     ExitSuccess = 0
@@ -16,7 +17,7 @@ Execute a Lox source file.
 function run_file(filename::AbstractString)::Nothing
     try
         contents = strip(read(filename, String))
-        location = Location(filename, 1)
+        location = Location(filename, 1, 0)
         maybe_error = run(contents, location)
         if maybe_error !== nothing
             report_error(maybe_error)
@@ -25,7 +26,7 @@ function run_file(filename::AbstractString)::Nothing
     catch e
         if e isa SystemError
             report_error(
-                LoxError(Location("startup", 0), "Could not read file '$filename'"),
+                LoxError(Location("startup", 0, 0), "Could not read file '$filename'"),
             )
             exit(ExitFileNotFound)
         end
@@ -65,7 +66,7 @@ function run_prompt()::Nothing
             end
         end
         source = strip(source)
-        isempty(source) || run(source, Location("REPL", line_number))
+        isempty(source) || run(source, Location("REPL", line_number, 0))
         line_number += nlines
     end
 end
@@ -85,10 +86,7 @@ function is_complete_lox_snippet(source::AbstractString)::Bool
 end
 
 """
-    run(
-        source::AbstractString,
-        starting_location::Errors.Location
-    )::Union{Nothing, LoxError}
+    run(source::AbstractString, start_loc::Errors.Location)::Union{Nothing, LoxError}
 
 Execute a Lox source code snippet. Returns `nothing` if successful, or a
 [`LoxError`](@ref) with diagnostic information if an error occurs.
@@ -96,9 +94,10 @@ Execute a Lox source code snippet. Returns `nothing` if successful, or a
 `starting_location` is the line number corresponding to the first line of the
 source.
 """
-function run(source::AbstractString, starting_location::Location)::Union{Nothing,LoxError}
+function run(source::AbstractString, start_loc::Location)::Union{Nothing,LoxError}
     try
-        throw(LoxError(starting_location, "Lox interpreter not yet implemented"))
+        lex(source, start_loc)
+        throw(LoxError(start_loc, "Lox interpreter not yet implemented"))
     catch e
         if e isa LoxError
             report_error(e)
