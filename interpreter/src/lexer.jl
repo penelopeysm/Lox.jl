@@ -153,10 +153,7 @@ function read_next_token!(
     chars_read, next_char = get_char(chars_read, source)
     if isnothing(next_char)
         current_location = identify_location(chars_read, source, start_loc)
-        throw(LoxError(
-            current_location,
-            "Unexpected end of input",
-        ))
+        throw(LoxError(current_location, "Unexpected end of input"))
     elseif next_char == '('
         push!(tokens, LeftParen())
     elseif next_char == ')'
@@ -214,10 +211,7 @@ function read_next_token!(
                 break
             elseif chars_read >= length(source)
                 current_location = identify_location(chars_read, source, start_loc)
-                throw(LoxError(
-                    current_location,
-                    "Unterminated string literal",
-                ))
+                throw(LoxError(current_location, "Unterminated string literal"))
             end
         end
         end_pos = chars_read - 1
@@ -226,16 +220,16 @@ function read_next_token!(
         # number literal
         start_pos = chars_read
         # grab the bit before the decimal point
-        while chars_read < length(source) && isdigit(source[chars_read + 1])
+        while chars_read < length(source) && isdigit(source[chars_read+1])
             chars_read += 1
         end
         # check for a decimal point
-        if chars_read < length(source) && source[chars_read + 1] == '.'
+        if chars_read < length(source) && source[chars_read+1] == '.'
             # check if it's a digit after the decimal point
-            if chars_read + 1 < length(source) && isdigit(source[chars_read + 2])
+            if chars_read + 1 < length(source) && isdigit(source[chars_read+2])
                 chars_read += 1
                 # grab the bit after the decimal point
-                while chars_read < length(source) && isdigit(source[chars_read + 1])
+                while chars_read < length(source) && isdigit(source[chars_read+1])
                     chars_read += 1
                 end
             end
@@ -248,9 +242,11 @@ function read_next_token!(
         # identifier or keyword
         # TODO: Julia's isletter accepts Unicode letters too
         start_pos = chars_read
-        while chars_read < length(source) && (isletter(source[chars_read + 1]) ||
-                                              isdigit(source[chars_read + 1]) ||
-                                              source[chars_read + 1] == '_')
+        while chars_read < length(source) && (
+            isletter(source[chars_read+1]) ||
+            isdigit(source[chars_read+1]) ||
+            source[chars_read+1] == '_'
+        )
             chars_read += 1
         end
         end_pos = chars_read
@@ -258,10 +254,7 @@ function read_next_token!(
         push!(tokens, identifier(lexeme))
     else
         current_location = identify_location(chars_read, source, start_loc)
-        throw(LoxError(
-            current_location,
-            "Unexpected character: '$next_char'.",
-        ))
+        throw(LoxError(current_location, "Unexpected character: '$next_char'."))
     end
     return chars_read
 end
