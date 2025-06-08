@@ -268,11 +268,9 @@ function lex(source::AbstractString, start_loc::Location)::Vector{Token}
     N = length(source)
     chars_read = 0
     tokens = Token[]
-
     while chars_read < N
         chars_read = read_next_token!(chars_read, source, start_loc, tokens)
     end
-    @show tokens
     return tokens
 end
 
