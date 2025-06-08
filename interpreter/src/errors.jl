@@ -13,30 +13,31 @@ struct Location
 end
 
 """
-    LoxError
-
-An error in Lox source code execution.
+Abstract interface for Lox errors.
 """
-struct LoxError <: Exception
-    location::Location
+abstract type LoxError <: Exception end
+function get_location(::LoxError)::Location end
+function get_message(::LoxError)::String end
+
+struct LoxStartupError <: LoxError
     message::String
 end
+get_location(::LoxStartupError) = Location("startup", 0, 0)
+get_message(err::LoxStartupError) = err.message
 
-"""
-    report_error(err::LoxError)
-
-Pretty-print a Lox error to the user.
-"""
-function report_error(err::LoxError)
-    printstyled("Lox Error: ", bold = true, color = :red)
-    println(err.message)
-    print("    at: ")
-    printstyled(
+function show_error(err::LoxError)
+    io = IOBuffer()
+    ctx = IOContext(io, :color => true)
+    printstyled(ctx, "Lox Error: ", bold = true, color = :red)
+    println(ctx, err.message)
+    print(ctx, "    at: ")
+    printstyled(ctx,
         "$(err.location.file):$(err.location.line):$(err.location.column)",
         color = :magenta,
     )
-    println()
+    return String(take!(io))
 end
+report_error(err::LoxError) = println(Base.stderr, show_error(err))
 
 """
     identify_location(chars_read::Int, source::AbstractString, start_loc::Location)::Location
@@ -70,6 +71,5 @@ function identify_location(
     end
     return Location(file, line, column)
 end
-
 
 end # module

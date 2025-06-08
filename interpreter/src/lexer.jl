@@ -2,6 +2,13 @@ module Lexer
 
 using ..Errors: Location, LoxError, identify_location
 
+struct LoxLexError <: LoxError
+    location::Location
+    message::String
+end
+get_location(err::LoxLexError) = err.location
+get_message(err::LoxLexError) = err.message
+
 abstract type Token end
 struct LeftParen <: Token end
 struct RightParen <: Token end
@@ -48,12 +55,6 @@ struct True <: Token end
 struct Var <: Token end
 struct While <: Token end
 struct Eof <: Token end
-struct ErrorToken <: Token
-    # We use this to denote a tokenisation failure in get_token_type, because
-    # that function has no access to the location (so we can't construct a
-    # full `LoxError`).
-    message::String
-end
 
 """
     get_char(chars_read::Int, source::String)::Union{Tuple{Int,Char},Tuple{Int,Nothing}}
@@ -137,8 +138,6 @@ function identifier(lexeme::AbstractString)::Token
 end
 
 """
-    read_next_token!(chars_read::Int, source::String, tokens::Vector{Token})
-
 Read the next token from `source`, starting from the character at index `chars_read`.
 If the token is successfully read, it is pushed onto the `tokens` vector.
 
@@ -149,11 +148,12 @@ function read_next_token!(
     source::AbstractString,
     start_loc::Location,
     tokens::Vector{Token},
+    errors::Vector{LoxLexError},
 )::Int
     chars_read, next_char = get_char(chars_read, source)
     if isnothing(next_char)
         current_location = identify_location(chars_read, source, start_loc)
-        throw(LoxError(current_location, "Unexpected end of input"))
+        throw(LoxLexError(current_location, "Unexpected end of input"))
     elseif next_char == '('
         push!(tokens, LeftParen())
     elseif next_char == ')'
@@ -200,7 +200,6 @@ function read_next_token!(
         else
             push!(tokens, Slash())
         end
-        # TODO: Handle more stuff
     elseif isspace(next_char) # whitespace is a no-op
     elseif next_char == '"'
         # string literal
@@ -211,7 +210,8 @@ function read_next_token!(
                 break
             elseif chars_read >= length(source)
                 current_location = identify_location(chars_read, source, start_loc)
-                throw(LoxError(current_location, "Unterminated string literal"))
+                push!(errors, LoxLexError("Unterminated string literal"))
+                break
             end
         end
         end_pos = chars_read - 1
@@ -240,7 +240,7 @@ function read_next_token!(
         push!(tokens, LoxNumber(value))
     elseif isletter(next_char) || next_char == '_'
         # identifier or keyword
-        # TODO: Julia's isletter accepts Unicode letters too
+        # Note: Julia's isletter accepts Unicode letters too
         start_pos = chars_read
         while chars_read < length(source) && (
             isletter(source[chars_read+1]) ||
@@ -254,7 +254,7 @@ function read_next_token!(
         push!(tokens, identifier(lexeme))
     else
         current_location = identify_location(chars_read, source, start_loc)
-        throw(LoxError(current_location, "Unexpected character: '$next_char'."))
+        push!(errors, LoxLexError(current_location, "Unexpected character: '$next_char'."))
     end
     return chars_read
 end
@@ -264,14 +264,15 @@ end
 
 Lex. `start_loc` refers to the location of the first character in `source`.
 """
-function lex(source::AbstractString, start_loc::Location)::Vector{Token}
+function lex(source::AbstractString, start_loc::Location)::Tuple{Vector{Token},Vector{LoxLexError}}
     N = length(source)
     chars_read = 0
     tokens = Token[]
+    errors = LoxLexError[]
     while chars_read < N
-        chars_read = read_next_token!(chars_read, source, start_loc, tokens)
+        chars_read = read_next_token!(chars_read, source, start_loc, tokens, errors)
     end
-    return tokens
+    return tokens, errors
 end
 
 

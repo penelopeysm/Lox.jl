@@ -5,6 +5,13 @@ using ..Lexer: Lexer
 
 export parse, to_sexp
 
+struct LoxParseError <: LoxError
+    location::Location
+    message::String
+end
+get_location(err::LoxParseError) = err.location
+get_message(err::LoxParseError) = err.message
+
 abstract type LoxExpr end
 
 # Indeed, we're very quickly reaching the point where we want GADTs...
@@ -76,15 +83,15 @@ to_sexp_op(op::Divide) = "/"
 to_sexp_op(op::Bang) = "!"
 to_sexp_op(op::MinusUnary) = "-"
 
-function expression(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Location)::Tuple{Int,LoxExpr}
-    return equality(tokens_read, tokens, start_loc)
+function expression(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Location, parse_errors::Vector{LoxParseError})::Tuple{Int,LoxExpr}
+    return equality(tokens_read, tokens, start_loc, parse_errors)
 end
 
 function peek_next(tokens_read::Int, tokens::Vector{Lexer.Token})::Union{Nothing,Lexer.Token}
     if tokens_read >= length(tokens)
         return nothing
     else
-        return tokens[tokens_read + 1]
+        return tokens[tokens_read+1]
     end
 end
 
@@ -92,57 +99,58 @@ function left_associative_binary(
     tokens_read::Int,
     tokens::Vector{Lexer.Token},
     start_loc::Location,
+    parse_errors::Vector{LoxParseError},
     operand_parser::Function,
     operator_mapping::Dict{<:Lexer.Token,<:LoxBinaryOp},
 )::Tuple{Int,LoxExpr}
-    tokens_read, left_expr = operand_parser(tokens_read, tokens, start_loc)
+    tokens_read, left_expr = operand_parser(tokens_read, tokens, start_loc, parse_errors)
     next_token = peek_next(tokens_read, tokens)
     while haskey(operator_mapping, next_token)
         # consume the operator
         tokens_read += 1
         operator = operator_mapping[next_token]
-        tokens_read, right_expr = operand_parser(tokens_read, tokens, start_loc)
+        tokens_read, right_expr = operand_parser(tokens_read, tokens, start_loc, parse_errors)
         left_expr = LoxBinary(operator, left_expr, right_expr)
         next_token = peek_next(tokens_read, tokens)
     end
     return tokens_read, left_expr
 end
 
-function equality(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Location)::Tuple{Int,LoxExpr}
+function equality(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Location, parse_errors::Vector{LoxParseError})::Tuple{Int,LoxExpr}
     operator_mapping = Dict(
         Lexer.EqualEqual() => EqualEqual(),
         Lexer.BangEqual() => BangEqual(),
     )
-    return left_associative_binary(tokens_read, tokens, start_loc, comparison, operator_mapping)
+    return left_associative_binary(tokens_read, tokens, start_loc, parse_errors, comparison, operator_mapping)
 end
 
-function comparison(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Location)::Tuple{Int,LoxExpr}
+function comparison(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Location, parse_errors::Vector{LoxParseError})::Tuple{Int,LoxExpr}
     operator_mapping = Dict(
         Lexer.Less() => LessThan(),
         Lexer.LessEqual() => LessThanEqual(),
         Lexer.Greater() => GreaterThan(),
         Lexer.GreaterEqual() => GreaterThanEqual(),
     )
-    return left_associative_binary(tokens_read, tokens, start_loc, term, operator_mapping)
+    return left_associative_binary(tokens_read, tokens, start_loc, parse_errors, term, operator_mapping)
 end
 
-function term(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Location)::Tuple{Int,LoxExpr}
+function term(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Location, parse_errors::Vector{LoxParseError})::Tuple{Int,LoxExpr}
     operator_mapping = Dict(
         Lexer.Plus() => Add(),
         Lexer.Minus() => Subtract()
     )
-    return left_associative_binary(tokens_read, tokens, start_loc, factor, operator_mapping)
+    return left_associative_binary(tokens_read, tokens, start_loc, parse_errors, factor, operator_mapping)
 end
 
-function factor(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Location)::Tuple{Int,LoxExpr}
+function factor(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Location, parse_errors::Vector{LoxParseError})::Tuple{Int,LoxExpr}
     operator_mapping = Dict(
         Lexer.Star() => Multiply(),
         Lexer.Slash() => Divide()
     )
-    return left_associative_binary(tokens_read, tokens, start_loc, unary, operator_mapping)
+    return left_associative_binary(tokens_read, tokens, start_loc, parse_errors, unary, operator_mapping)
 end
 
-function unary(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Location)::Tuple{Int,LoxExpr}
+function unary(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Location, parse_errors::Vector{LoxParseError})::Tuple{Int,LoxExpr}
     next_token = peek_next(tokens_read, tokens)
     if next_token isa Lexer.Bang || next_token isa Lexer.Minus
         tokens_read += 1
@@ -153,14 +161,14 @@ function unary(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Locatio
         else
             error("wut")
         end
-        tokens_read, right_expr = unary(tokens_read, tokens, start_loc)
+        tokens_read, right_expr = unary(tokens_read, tokens, start_loc, parse_errors)
         return tokens_read, LoxUnary(operator, right_expr)
     else
-        return primary(tokens_read, tokens, start_loc)
+        return primary(tokens_read, tokens, start_loc, parse_errors)
     end
 end
 
-function primary(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Location)::Tuple{Int,LoxExpr}
+function primary(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Location, parse_errors::Vector{LoxParseError})::Tuple{Int,LoxExpr}
     next_token = peek_next(tokens_read, tokens)
     if next_token isa Lexer.False
         return tokens_read + 1, LoxLiteral(false)
@@ -172,20 +180,34 @@ function primary(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Locat
         return tokens_read + 1, LoxLiteral(next_token.value)
     elseif next_token isa Lexer.LeftParen
         tokens_read += 1
-        tokens_read, expr = expression(tokens_read, tokens, start_loc)
-        peek_next(tokens_read, tokens) isa Lexer.RightParen ||
-            throw(LoxError(start_loc, "Expected ')' after expression"))
-        tokens_read += 1 # consume the right paren
-        return tokens_read, LoxGrouping(expr)
+        tokens_read, expr = expression(tokens_read, tokens, start_loc, parse_errors)
+        if peek_next(tokens_read, tokens) isa Lexer.RightParen
+            # Consume the right paren
+            tokens_read += 1
+            return tokens_read, LoxGrouping(expr)
+        else
+            # TODO: Fix location?
+            push!(parse_errors, LoxParseError(start_loc, "Expected ')' after expression"))
+            error("need to synchronise parser here")
+        end
+    else
+        # parse failure
+        # TODO: Fix location?
+        push!(parse_errors, LoxParseError(start_loc, "Parse error: " * string(next_token)))
+        error("need to synchronise parser here")
     end
 end
 
-function parse(tokens::Vector{Lexer.Token}, start_loc::Location)::LoxExpr
-    tokens_read, expr = expression(0, tokens, start_loc)
-    if tokens_read < length(tokens)
-        throw(LoxError(start_loc, "Extra tokens: " * string(tokens[tokens_read:end])))
+function parse(tokens::Vector{Lexer.Token}, start_loc::Location)::Union{LoxExpr,Vector{LoxParseError}}
+    if isempty(tokens)
+        throw(LoxParseError(start_loc, "No tokens to parse"))
     end
-    return expr
+    parse_errors = LoxParseError[]
+    tokens_read, expr = expression(0, tokens, start_loc, parse_errors)
+    if tokens_read < length(tokens)
+        throw(LoxParseError(start_loc, "Extra tokens: " * string(tokens[tokens_read:end])))
+    end
+    return expr, parse_errors
 end
 
 end # module

@@ -7,13 +7,11 @@ include("errors.jl")
 include("lexer.jl")
 include("parser.jl")
 
-using .Errors: LoxError, Location, report_error
+using .Errors: LoxError, LoxStartupError, Location, show_error, report_error
 
-@enum ExitCode begin
-    ExitSuccess = 0
-    ExitFileNotFound = 64
-    ExitRuntimeError = 65
-end
+const EXIT_SUCCESS = 0
+const EXIT_FILE_NOT_FOUND = 64
+const EXIT_RUNTIME_ERROR = 65
 
 """
     run_file(filename::AbstractString)::Nothing
@@ -27,14 +25,14 @@ function run_file(filename::AbstractString)::Nothing
         maybe_error = run(contents, location)
         if maybe_error !== nothing
             report_error(maybe_error)
-            exit(ExitRuntimeError)
+            exit(EXIT_RUNTIME_ERROR)
         end
     catch e
         if e isa SystemError
             report_error(
-                LoxError(Location("startup", 0, 0), "Could not read file '$filename'"),
+                LoxStartupError("Could not read file '$filename'"),
             )
-            exit(ExitFileNotFound)
+            exit(EXIT_FILE_NOT_FOUND)
         end
         # Error in the compiler itself
         rethrow(e)
@@ -100,13 +98,23 @@ Execute a Lox source code snippet. Returns `nothing` if successful, or a
 `starting_location` is the line number corresponding to the first line of the
 source.
 """
-function run(source::AbstractString, start_loc::Location)::Union{Nothing,LoxError}
+function run(source::AbstractString, start_loc::Location)::Nothing
     try
-        tokens = Lexer.lex(source, start_loc)
+        tokens, lex_errors = Lexer.lex(source, start_loc)
         println("Tokens: ", tokens)
+        if !isempty(lex_errors)
+            warning = "Encountered $(length(lex_errors)) lexing errors:"
+            indent = " " ^ 4
+            for err in lex_errors
+                shown = show_error(err)
+                shown = indent * replace(shown, "\n" => "\n" * indent)
+                warning = warning * "\n" * shown
+            end
+            @warn warning
+        end
         ast = Parser.parse(tokens, start_loc)
         println("AST: ", Parser.to_sexp(ast))
-        throw(LoxError(start_loc, "Lox interpreter not yet implemented"))
+        @warn "Lox interpreter not yet implemented"
     catch e
         if e isa LoxError
             report_error(e)
