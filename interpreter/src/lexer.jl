@@ -264,7 +264,10 @@ end
 
 Lex. `start_loc` refers to the location of the first character in `source`.
 """
-function lex(source::AbstractString, start_loc::Location)::Tuple{Vector{Token},Vector{LoxLexError}}
+function lex(
+    source::AbstractString,
+    start_loc::Location,
+)::Tuple{Vector{Token},Vector{LoxLexError}}
     N = length(source)
     chars_read = 0
     tokens = Token[]
@@ -272,6 +275,7 @@ function lex(source::AbstractString, start_loc::Location)::Tuple{Vector{Token},V
     while chars_read < N
         chars_read = read_next_token!(chars_read, source, start_loc, tokens, errors)
     end
+    push!(tokens, Eof())
     return tokens, errors
 end
 

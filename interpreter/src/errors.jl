@@ -32,10 +32,7 @@ function show_error(err::LoxError)
     println(ctx, get_message(err))
     print(ctx, "    at: ")
     loc = get_location(err)
-    printstyled(ctx,
-        "$(loc.file):$(loc.line):$(loc.column)",
-        color = :magenta,
-    )
+    printstyled(ctx, "$(loc.file):$(loc.line):$(loc.column)", color = :magenta)
     return String(take!(io))
 end
 report_error(err::LoxError) = println(Base.stderr, show_error(err))
