@@ -188,14 +188,38 @@ function primary(tokens_read::Int, tokens::Vector{Lexer.Token}, start_loc::Locat
         else
             # TODO: Fix location?
             push!(parse_errors, LoxParseError(start_loc, "Expected ')' after expression"))
-            error("need to synchronise parser here")
+            tokens_read = synchronise(tokens_read, tokens)
+            error("synchronisation not fully implemented yet since we don't have statements")
         end
     else
         # parse failure
         # TODO: Fix location?
         push!(parse_errors, LoxParseError(start_loc, "Parse error: " * string(next_token)))
-        error("need to synchronise parser here")
+        tokens_read = synchronise(tokens_read, tokens)
+        error("synchronisation not fully implemented yet since we don't have statements")
     end
+end
+
+"""
+Consume tokens until we reach somewhere we can resume parsing from.
+"""
+function synchronise(tokens_read::Int, tokens::Vector{Lexer.Token})::Int
+    while tokens_read < length(tokens)
+        this_token, next_token = tokens[tokens_read], tokens[tokens_read + 1]
+        if this_token isa Lexer.Semicolon || 
+            next_token isa Lexer.Class ||
+            next_token isa Lexer.Fun ||
+            next_token isa Lexer.Var ||
+            next_token isa Lexer.For ||
+            next_token isa Lexer.If ||
+            next_token isa Lexer.While ||
+            next_token isa Lexer.Print ||
+            next_token isa Lexer.Return
+            break
+        end
+        tokens_read += 1
+    end
+    return tokens_read
 end
 
 function parse(tokens::Vector{Lexer.Token}, start_loc::Location)::Union{LoxExpr,Vector{LoxParseError}}
