@@ -222,7 +222,7 @@ function synchronise(tokens_read::Int, tokens::Vector{Lexer.Token})::Int
     return tokens_read
 end
 
-function parse(tokens::Vector{Lexer.Token}, start_loc::Location)::Union{LoxExpr,Vector{LoxParseError}}
+function parse(tokens::Vector{Lexer.Token}, start_loc::Location)::Tuple{LoxExpr,Vector{LoxParseError}}
     if isempty(tokens)
         throw(LoxParseError(start_loc, "No tokens to parse"))
     end

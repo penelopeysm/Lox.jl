@@ -6,6 +6,7 @@ export run_prompt
 include("errors.jl")
 include("lexer.jl")
 include("parser.jl")
+include("eval.jl")
 
 using .Errors: LoxError, LoxStartupError, Location, show_error, report_error
 
@@ -112,9 +113,20 @@ function run(source::AbstractString, start_loc::Location)::Nothing
             end
             @warn warning
         end
-        ast = Parser.parse(tokens, start_loc)
+        ast, parse_errors = Parser.parse(tokens, start_loc)
         println("AST: ", Parser.to_sexp(ast))
-        @warn "Lox interpreter not yet implemented"
+        if !isempty(parse_errors)
+            warning = "Encountered $(length(parse_errors)) parsing errors:"
+            indent = " " ^ 4
+            for err in parse_errors
+                shown = show_error(err)
+                shown = indent * replace(shown, "\n" => "\n" * indent)
+                warning = warning * "\n" * shown
+            end
+            @warn warning
+        end
+        value = Eval.lox_eval(ast)
+        println("Evaluated to: ", value)
     catch e
         if e isa LoxError
             report_error(e)

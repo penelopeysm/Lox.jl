@@ -29,10 +29,11 @@ function show_error(err::LoxError)
     io = IOBuffer()
     ctx = IOContext(io, :color => true)
     printstyled(ctx, "Lox Error: ", bold = true, color = :red)
-    println(ctx, err.message)
+    println(ctx, get_message(err))
     print(ctx, "    at: ")
+    loc = get_location(err)
     printstyled(ctx,
-        "$(err.location.file):$(err.location.line):$(err.location.column)",
+        "$(loc.file):$(loc.line):$(loc.column)",
         color = :magenta,
     )
     return String(take!(io))
