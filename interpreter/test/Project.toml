@@ -1,0 +1,3 @@
+[deps]
+LoxInterpreter = "de4cdc74-450e-4b0b-8704-7999a3240a15"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

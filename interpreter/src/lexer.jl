@@ -56,48 +56,136 @@ struct Var <: Token end
 struct While <: Token end
 struct Eof <: Token end
 
+# ================================================================
+# Lexer state and basic functions to manipulate it.
+
+mutable struct LexerState{S<:AbstractString}
+    "the current position in the source string; begins at 0"
+    position::Int
+    "the string being lexed"
+    source::S
+    "length of `source`, cached for efficiency"
+    source_len::Int
+    "tokens parsed so far"
+    tokens::Vector{Token}
+    "errors encountered during lexing"
+    errors::Vector{LoxLexError}
+
+    function LexerState(source::S) where {S<:AbstractString}
+        new{S}(0, source, length(source), Token[], LoxLexError[])
+    end
+end
+
+
+function increment_position!(s::LexerState, n::Int=1)
+    s.position += n
+end
+
+function is_at_end(s::LexerState)::Bool
+    return s.position >= s.source_len
+end
+
+function add_token!(s::LexerState, token::Token)
+    push!(s.tokens, token)
+end
+
+function add_error!(s::LexerState, error::LoxLexError)
+    push!(s.errors, error)
+end
+
+# ================================================================
+# Helper functions for lexing.
+
 """
-    get_char(chars_read::Int, source::String)::Union{Tuple{Int,Char},Tuple{Int,Nothing}}
+    get_char!(s::LexerState)::Union{Char,Nothing}
 
 Get the next character from the source string, given the number of characters
 already read.
 
-If there are no more characters to read, returns `nothing` as the second element.
+If there are no more characters to read, returns `nothing`.
 """
-function get_char(
-    chars_read::Int,
-    source::AbstractString,
-)::Union{Tuple{Int,Char},Tuple{Int,Nothing}}
-    return if chars_read >= length(source)
-        chars_read, nothing
+function get_char!(s::LexerState)::Union{Char,Nothing}
+    if is_at_end(s)
+        return nothing
     else
-        chars_read + 1, source[chars_read+1]
+        increment_position!(s)
+        return s.source[s.position]
     end
 end
 
 """
-    peek_char_eq(chars_read::Int, source::String, expected_char::Char)::Tuple{Int,Bool}
+    get_char_if_eq!(s::LexerState, expected_char::Char)::Bool
 
-Check if the next character in `source` is equal to `expected_char`. If so,
-consumes it and returns `true`. If not, does not consume it and returns
-`false`.
+Check if the next character in `s.source` is equal to `expected_char`. If so,
+consumes and returns `true`. Otherwise, does not consume the character and
+returns `false`.
+
+If there are no more characters to read, returns `false`.
 """
-function peek_char_eq(
-    chars_read::Int,
-    source::AbstractString,
+function get_char_if_eq!(
+    s::LexerState,
     expected_char::Char,
-)::Tuple{Int,Bool}
-    if chars_read >= length(source)
-        return chars_read, false
+)::Bool
+    if is_at_end(s)
+        return false
     else
-        actual_char = source[chars_read+1]
-        return if actual_char == expected_char
-            chars_read + 1, true
+        actual_char = s.source[s.position+1]
+        if actual_char == expected_char
+            increment_position!(s)
+            return true
         else
-            chars_read, false
+            return false
         end
     end
 end
+
+"""
+    peek_char_eq(s::LexerState, expected_char::Char)::Bool
+
+Check if the next character in `s.source` is equal to `expected_char`, without
+consuming it.
+"""
+function peek_char_eq(
+    s::LexerState,
+    expected_char::Char,
+)::Bool
+    if is_at_end(s)
+        return false
+    else
+        return s.source[s.position+1] == expected_char
+    end
+end
+
+"""
+Read all characters while a predicate `pred` is true. Does not include the
+first character that does not match the predicate.
+"""
+function consume_while!(
+    s::LexerState,
+    pred::Function,
+)::String
+    word = ""
+    while true
+        is_at_end(s) && return word
+        next = s.source[s.position+1]
+        if pred(next)
+            word *= next
+            increment_position!(s) # ok can consume it
+        else
+            return word # don't consume it!
+        end
+    end
+end
+
+"""
+Read all characters until (but NOT including) a designated marker.
+"""
+function consume_until!(s::LexerState, marker::Char)::String
+    consume_while!(s, c -> c != marker)
+end
+
+# ================================================================
+# The actual lexing.
 
 function identifier(lexeme::AbstractString)::Token
     if lexeme == "and"
@@ -138,125 +226,96 @@ function identifier(lexeme::AbstractString)::Token
 end
 
 """
-Read the next token from `source`, starting from the character at index `chars_read`.
-If the token is successfully read, it is pushed onto the `tokens` vector.
-
-Returns the new value of `chars_read` after having read the token.
+Read the next token from `s.source`, starting from the character at index
+`s.position` If the token is successfully read, it is pushed onto `s.tokens`,
+and `s.position` is updated.
 """
-function read_next_token!(
-    chars_read::Int,
-    source::AbstractString,
-    start_loc::Location,
-    tokens::Vector{Token},
-    errors::Vector{LoxLexError},
-)::Int
-    chars_read, next_char = get_char(chars_read, source)
+function read_next_token!(s::LexerState, start_loc::Location)::Nothing
+    next_char = get_char!(s)
     if isnothing(next_char)
-        current_location = identify_location(chars_read, source, start_loc)
+        current_location = identify_location(s.position, s.source, start_loc)
         throw(LoxLexError(current_location, "Unexpected end of input"))
     elseif next_char == '('
-        push!(tokens, LeftParen())
+        add_token!(s, LeftParen())
     elseif next_char == ')'
-        push!(tokens, RightParen())
+        add_token!(s, RightParen())
     elseif next_char == '{'
-        push!(tokens, LeftBrace())
+        add_token!(s, LeftBrace())
     elseif next_char == '}'
-        push!(tokens, RightBrace())
+        add_token!(s, RightBrace())
     elseif next_char == ','
-        push!(tokens, Comma())
+        add_token!(s, Comma())
     elseif next_char == '.'
-        push!(tokens, Dot())
+        add_token!(s, Dot())
     elseif next_char == '-'
-        push!(tokens, Minus())
+        add_token!(s, Minus())
     elseif next_char == '+'
-        push!(tokens, Plus())
+        add_token!(s, Plus())
     elseif next_char == ';'
-        push!(tokens, Semicolon())
+        add_token!(s, Semicolon())
     elseif next_char == '*'
-        push!(tokens, Star())
+        add_token!(s, Star())
     elseif next_char == '!'
-        chars_read, next_char_is_equals = peek_char_eq(chars_read, source, '=')
+        next_char_is_equals = get_char_if_eq!(s, '=')
         next_token = next_char_is_equals ? BangEqual() : Bang()
-        push!(tokens, next_token)
+        add_token!(s, next_token)
     elseif next_char == '='
-        chars_read, next_char_is_equals = peek_char_eq(chars_read, source, '=')
+        next_char_is_equals = get_char_if_eq!(s, '=')
         next_token = next_char_is_equals ? EqualEqual() : Equal()
-        push!(tokens, next_token)
+        add_token!(s, next_token)
     elseif next_char == '>'
-        chars_read, next_char_is_equals = peek_char_eq(chars_read, source, '=')
+        next_char_is_equals = get_char_if_eq!(s, '=')
         next_token = next_char_is_equals ? GreaterEqual() : Greater()
-        push!(tokens, next_token)
+        add_token!(s, next_token)
     elseif next_char == '<'
-        chars_read, next_char_is_equals = peek_char_eq(chars_read, source, '=')
+        next_char_is_equals = get_char_if_eq!(s, '=')
         next_token = next_char_is_equals ? LessEqual() : Less()
-        push!(tokens, next_token)
+        add_token!(s, next_token)
     elseif next_char == '/'
-        chars_read, next_char_is_slash = peek_char_eq(chars_read, source, '/')
+        next_char_is_slash = get_char_if_eq!(s, '/')
         if next_char_is_slash
-            # line comment beginning with // -- read until end of line or file
-            while chars_read < length(source) && source[chars_read+1] != '\n'
-                chars_read += 1
-            end
+            # line comment beginning with //
+            consume_until!(s, '\n')
         else
-            push!(tokens, Slash())
+            add_token!(s, Slash())
         end
     elseif isspace(next_char) # whitespace is a no-op
     elseif next_char == '"'
         # string literal
-        start_pos = chars_read + 1
-        while true
-            chars_read += 1
-            if source[chars_read] == '"'
-                break
-            elseif chars_read >= length(source)
-                current_location = identify_location(chars_read, source, start_loc)
-                push!(errors, LoxLexError("Unterminated string literal"))
-                break
-            end
+        str = consume_until!(s, '"')
+        closing_quote = get_char!(s)
+        if closing_quote != '"'
+            current_location = identify_location(s.position, s.source, start_loc)
+            throw(LoxLexError(current_location, "Unterminated string literal"))
         end
-        end_pos = chars_read - 1
-        push!(tokens, LoxString(source[start_pos:end_pos]))
+        add_token!(s, LoxString(str))
     elseif isdigit(next_char)
-        # number literal
-        start_pos = chars_read
-        # grab the bit before the decimal point
-        while chars_read < length(source) && isdigit(source[chars_read+1])
-            chars_read += 1
-        end
+        # number literal. grab the bit before the decimal point
+        num = next_char * consume_while!(s, isdigit)
         # check for a decimal point
-        if chars_read < length(source) && source[chars_read+1] == '.'
+        if peek_char_eq(s, '.')
             # check if it's a digit after the decimal point
-            if chars_read + 1 < length(source) && isdigit(source[chars_read+2])
-                chars_read += 1
-                # grab the bit after the decimal point
-                while chars_read < length(source) && isdigit(source[chars_read+1])
-                    chars_read += 1
-                end
+            # TODO: Kind of ugly that we need to dig into the internals of `s`.
+            if s.position + 2 <= s.source_len && isdigit(s.source[s.position+2])
+                increment_position!(s) # consume the decimal point
+                after_decimal = consume_while!(s, isdigit)
+                num *= '.' * after_decimal
             end
             # otherwise don't consume the decimal point.
         end
-        end_pos = chars_read
-        value = parse(Float64, source[start_pos:end_pos])
-        push!(tokens, LoxNumber(value))
+        value = parse(Float64, num)
+        add_token!(s, LoxNumber(value))
     elseif isletter(next_char) || next_char == '_'
         # identifier or keyword
-        # Note: Julia's isletter accepts Unicode letters too
-        start_pos = chars_read
-        while chars_read < length(source) && (
-            isletter(source[chars_read+1]) ||
-            isdigit(source[chars_read+1]) ||
-            source[chars_read+1] == '_'
-        )
-            chars_read += 1
-        end
-        end_pos = chars_read
-        lexeme = source[start_pos:end_pos]
-        push!(tokens, identifier(lexeme))
+        # Note: Julia's isletter accepts Unicode letters too...
+        is_valid_identifier_char(c::Char) = isletter(c) || isdigit(c) || c == '_'
+        lexeme = next_char * consume_while!(s, is_valid_identifier_char)
+        add_token!(s, identifier(lexeme))
     else
-        current_location = identify_location(chars_read, source, start_loc)
-        push!(errors, LoxLexError(current_location, "Unexpected character: '$next_char'."))
+        current_location = identify_location(s.position, s.source, start_loc)
+        add_error!(s, LoxLexError(current_location, "Unexpected character: '$next_char'."))
     end
-    return chars_read
+    return nothing
 end
 
 """
@@ -268,16 +327,12 @@ function lex(
     source::AbstractString,
     start_loc::Location,
 )::Tuple{Vector{Token},Vector{LoxLexError}}
-    N = length(source)
-    chars_read = 0
-    tokens = Token[]
-    errors = LoxLexError[]
-    while chars_read < N
-        chars_read = read_next_token!(chars_read, source, start_loc, tokens, errors)
+    s = LexerState(source)
+    while !is_at_end(s)
+        read_next_token!(s, start_loc)
     end
-    push!(tokens, Eof())
-    return tokens, errors
+    add_token!(s, Eof())
+    return s.tokens, s.errors
 end
-
 
 end # module
