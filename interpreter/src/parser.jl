@@ -28,10 +28,14 @@ end
 struct LoxPrintStatement{Tex<:LoxExpr} <: LoxStatement
     expression::Tex
 end
+struct LoxBlockStatement <: LoxStatement
+    statements::Vector{LoxDeclaration}
+end
 
 struct LoxProgramme
     statements::Vector{LoxDeclaration}
 end
+Base.:(==)(prg1::LoxProgramme, prg2::LoxProgramme) = prg1.statements == prg2.statements
 
 # Indeed, we're very quickly reaching the point where we want GADTs...
 abstract type LoxBinaryOp end
@@ -283,17 +287,20 @@ end
 Consume tokens until we reach somewhere we can resume parsing from.
 """
 function synchronise(tokens_read::Int, tokens::Vector{Lexer.Token})::Int
-    while !(tokens_read isa Lexer.Eof)
+    # Skip over the first token, because we failed to parse it
+    tokens_read += 1
+    while true
         this_token, next_token = tokens[tokens_read], tokens[tokens_read+1]
-        if this_token isa Lexer.Semicolon ||
-           next_token isa Lexer.Class ||
-           next_token isa Lexer.Fun ||
-           next_token isa Lexer.Var ||
-           next_token isa Lexer.For ||
-           next_token isa Lexer.If ||
-           next_token isa Lexer.While ||
-           next_token isa Lexer.Print ||
-           next_token isa Lexer.Return
+        if (this_token isa Lexer.Semicolon ||
+            this_token isa Lexer.Eof ||
+            next_token isa Lexer.Class ||
+            next_token isa Lexer.Fun ||
+            next_token isa Lexer.Var ||
+            next_token isa Lexer.For ||
+            next_token isa Lexer.If ||
+            next_token isa Lexer.While ||
+            next_token isa Lexer.Print ||
+            next_token isa Lexer.Return)
             break
         end
         tokens_read += 1
@@ -393,7 +400,6 @@ function programme(
                 push!(decls, decl)
             catch e
                 if e isa LoxParseError
-                    push!(parse_errors, e)
                     tokens_read = synchronise(tokens_read, tokens)
                     continue
                 else

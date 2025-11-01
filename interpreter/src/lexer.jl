@@ -103,6 +103,8 @@ Get the next character from the source string, given the number of characters
 already read.
 
 If there are no more characters to read, returns `nothing`.
+
+Otherwise, consumes the character (i.e. advances the position of `s`) and returns it.
 """
 function get_char!(s::LexerState)::Union{Char,Nothing}
     if is_at_end(s)
@@ -165,16 +167,16 @@ function consume_while!(
     pred::Function,
 )::String
     word = ""
-    while true
-        is_at_end(s) && return word
+    while !is_at_end(s)
         next = s.source[s.position+1]
         if pred(next)
             word *= next
             increment_position!(s) # ok can consume it
         else
-            return word # don't consume it!
+            break
         end
     end
+    return word
 end
 
 """

@@ -4,7 +4,22 @@ using ..Errors: LoxError, Location
 using ..Parser: Parser
 
 struct LoxEnvironment
+    parent_env::Union{LoxEnvironment,Nothing}
     vars::Dict{String,Any}
+end
+function getvalue(env::LoxEnvironment, identifier::String)
+    if haskey(env.vars, identifier)
+        return env.vars[identifier]
+    elseif env.parent_env !== nothing
+        return getvalue(env.parent_env, identifier)
+    else
+        throw(LoxUndefVarError(identifier))
+    end
+end
+function setvalue!(env::LoxEnvironment, identifier::String, value::Any)
+    # TODO: allow modification of variables in parent environments
+    env.vars[identifier] = value
+    return nothing
 end
 
 struct LoxNil end
@@ -29,6 +44,12 @@ end
 get_location(::LoxRuntimeError) = Location("runtime", 0, 0)
 get_message(err::LoxRuntimeError) = err.message
 
+struct LoxUndefVarError <: LoxEvalError
+    identifier::String
+end
+get_location(::LoxUndefVarError) = Location("runtime", 0, 0)
+get_message(err::LoxUndefVarError) = "Undefined variable: `$(err.identifier)`"
+
 """
     lox_eval(::LoxExpr, ::LoxEnvironment)
 
@@ -38,13 +59,7 @@ lox_eval(lit::Parser.LoxLiteral{<:Number}, ::LoxEnvironment) = lit.value
 lox_eval(lit::Parser.LoxLiteral{<:Bool}, ::LoxEnvironment) = lit.value
 lox_eval(lit::Parser.LoxLiteral{<:String}, ::LoxEnvironment) = lit.value
 lox_eval(::Parser.LoxLiteral{Nothing}, ::LoxEnvironment) = LoxNil
-function lox_eval(var::Parser.LoxVariable, env::LoxEnvironment)
-    if haskey(env.vars, var.identifier)
-        return env.vars[var.identifier]
-    else
-        throw(LoxRuntimeError("Undefined variable: `$(var.identifier)`"))
-    end
-end
+lox_eval(var::Parser.LoxVariable, env::LoxEnvironment) = getvalue(env, var.identifier)
 lox_eval(grp::Parser.LoxGrouping, env::LoxEnvironment) = lox_eval(grp.expression, env)
 function lox_eval(expr::Parser.LoxUnary{Parser.Bang}, env::LoxEnvironment)
     return !(lox_truthy(lox_eval(expr.right, env)))
@@ -118,12 +133,12 @@ lox_truthy(::Any) = true
 Execute a statement or programme in Lox.
 """
 function lox_exec(stmt::Parser.LoxVarDeclaration{Nothing}, env::LoxEnvironment)
-    env.vars[stmt.identifier] = LoxNil
+    setvalue!(env, stmt.identifier, LoxNil)
     nothing
 end
 function lox_exec(stmt::Parser.LoxVarDeclaration{<:Parser.LoxExpr}, env::LoxEnvironment)
     initial_value = lox_eval(stmt.initial_expr, env)
-    env.vars[stmt.identifier] = initial_value
+    setvalue!(env, stmt.identifier, initial_value)
     nothing
 end
 function lox_exec(stmt::Parser.LoxExprStatement, env::LoxEnvironment)
@@ -135,7 +150,7 @@ function lox_exec(stmt::Parser.LoxPrintStatement, env::LoxEnvironment)
     println(value)
     nothing
 end
-function lox_exec(prg::Parser.LoxProgramme, env::LoxEnvironment=LoxEnvironment(Dict{String,Any}()))
+function lox_exec(prg::Parser.LoxProgramme, env::LoxEnvironment=LoxEnvironment(nothing, Dict{String,Any}()))
     for stmt in prg.statements
         lox_exec(stmt, env)
     end
