@@ -448,7 +448,7 @@ function programme(
 end
 
 function parse(
-    tokens::Vector{Lexer.Token},
+    tokens::Vector{Lexer.LocatedToken},
     start_loc::Location,
 )::Tuple{LoxProgramme,Vector{LoxParseError}}
     parse_errors = LoxParseError[]

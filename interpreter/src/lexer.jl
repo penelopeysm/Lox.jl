@@ -56,6 +56,12 @@ struct Var <: Token end
 struct While <: Token end
 struct Eof <: Token end
 
+# A token with an associated offset in the source string
+struct LocatedToken{T<:Token}
+    token::T
+    offset::Int
+end
+
 # ================================================================
 # Lexer state and basic functions to manipulate it.
 
@@ -67,12 +73,12 @@ mutable struct LexerState{S<:AbstractString}
     "length of `source`, cached for efficiency"
     source_len::Int
     "tokens parsed so far"
-    tokens::Vector{Token}
+    tokens::Vector{LocatedToken}
     "errors encountered during lexing"
     errors::Vector{LoxLexError}
 
     function LexerState(source::S) where {S<:AbstractString}
-        new{S}(0, source, length(source), Token[], LoxLexError[])
+        new{S}(0, source, length(source), LocatedToken[], LoxLexError[])
     end
 end
 
@@ -86,7 +92,7 @@ function is_at_end(s::LexerState)::Bool
 end
 
 function add_token!(s::LexerState, token::Token)
-    push!(s.tokens, token)
+    push!(s.tokens, LocatedToken(token, s.position))
 end
 
 function add_error!(s::LexerState, error::LoxLexError)
@@ -235,6 +241,7 @@ and `s.position` is updated.
 function read_next_token!(s::LexerState, start_loc::Location)::Nothing
     next_char = get_char!(s)
     if isnothing(next_char)
+        # TODO: move this to dedicated error handling code
         current_location = identify_location(s.position, s.source, start_loc)
         throw(LoxLexError(current_location, "Unexpected end of input"))
     elseif next_char == '('
@@ -328,7 +335,7 @@ Lex. `start_loc` refers to the location of the first character in `source`.
 function lex(
     source::AbstractString,
     start_loc::Location,
-)::Tuple{Vector{Token},Vector{LoxLexError}}
+)::Tuple{Vector{LocatedToken},Vector{LoxLexError}}
     s = LexerState(source)
     while !is_at_end(s)
         read_next_token!(s, start_loc)

@@ -5,11 +5,13 @@ using LoxInterpreter: Errors, Lexer
 
 dummy_location = Errors.Location("test_suite", 1, 1)
 
+# TODO: Test location information as well
+
 @testset "lexer" begin
     function test_lexes_to(input, expected_tokens)
-        tokens, lex_errors = Lexer.lex(input, dummy_location)
-        @test tokens[1:end-1] == expected_tokens
-        @test tokens[end] == Lexer.Eof()
+        located_tokens, lex_errors = Lexer.lex(input, dummy_location)
+        @test map(lt -> lt.token, located_tokens[1:end-1]) == expected_tokens
+        @test located_tokens[end].token == Lexer.Eof()
         @test isempty(lex_errors)
     end
 
