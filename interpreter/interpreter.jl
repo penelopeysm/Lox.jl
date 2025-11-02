@@ -26,7 +26,7 @@ end
 function main(args)
     mode, silent = parse_args(args)
     if mode isa FileMode
-        run_file(mode.filename, silent)
+        exit(run_file(mode.filename, silent))
     else
         run_prompt(silent)
     end

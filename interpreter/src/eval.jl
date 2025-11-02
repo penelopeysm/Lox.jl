@@ -16,9 +16,17 @@ function getvalue(env::LoxEnvironment, var::Parser.LoxVariable)
         throw(LoxUndefVarError(var))
     end
 end
-function setvalue!(env::LoxEnvironment, var::Parser.LoxVariable, value::Any)
-    # TODO (stretch): allow modification of variables in parent environments
-    env.vars[var.identifier] = value
+function setvalue!(env::LoxEnvironment, var::Parser.LoxVariable, value::Any, is_new_declaration::Bool)
+    if haskey(env.vars, var.identifier) || is_new_declaration
+        # If it's a new variable, we always want to set it in the current scope.
+        env.vars[var.identifier] = value
+    elseif env.parent_env !== nothing && !is_new_declaration
+        # We can only modify parent scopes if it's not a new variable.
+        # TODO (stretch): allow modification of variables in parent environments
+        setvalue!(env.parent_env, var, value, false)
+    else
+        throw(LoxUndefVarError(var))
+    end
     return nothing
 end
 
@@ -66,7 +74,7 @@ end
 
 function lox_eval(expr::Parser.LoxAssignment, env::LoxEnvironment)
     rvalue = lox_eval(expr.value_expression, env)
-    setvalue!(env, expr.target_variable, rvalue)
+    setvalue!(env, expr.target_variable, rvalue, false)
     return rvalue
 end
 
@@ -153,12 +161,12 @@ lox_truthy(::Any) = true
 Execute a statement or programme in Lox.
 """
 function lox_exec(stmt::Parser.LoxVarDeclaration{Nothing}, env::LoxEnvironment)
-    setvalue!(env, stmt.variable, LoxNil)
+    setvalue!(env, stmt.variable, LoxNil, true)
     nothing
 end
 function lox_exec(stmt::Parser.LoxVarDeclaration{<:Parser.LoxExpr}, env::LoxEnvironment)
     initial_value = lox_eval(stmt.initial_expr, env)
-    setvalue!(env, stmt.variable, initial_value)
+    setvalue!(env, stmt.variable, initial_value, true)
     nothing
 end
 function lox_exec(stmt::Parser.LoxExprStatement, env::LoxEnvironment)
@@ -186,6 +194,12 @@ function lox_exec(stmt::Parser.LoxIfStatement, env::LoxEnvironment)
     end
     nothing
 end
+function lox_exec(stmt::Parser.LoxWhileStatement, env::LoxEnvironment)
+    while lox_truthy(lox_eval(stmt.condition, env))
+        lox_exec(stmt.body, env)
+    end
+    nothing
+end
 function lox_exec(stmt::Parser.LoxBlockStatement, env::LoxEnvironment)
     # Generate a new child environment
     new_env = LoxEnvironment(env, Dict{String,Any}())
@@ -194,6 +208,7 @@ function lox_exec(stmt::Parser.LoxBlockStatement, env::LoxEnvironment)
     end
     nothing
 end
+
 function lox_exec(
     prg::Parser.LoxProgramme,
     env::LoxEnvironment=LoxEnvironment(nothing, Dict{String,Any}()),

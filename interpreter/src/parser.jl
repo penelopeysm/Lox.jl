@@ -91,6 +91,14 @@ end
 start_offset(stmt::LoxIfStatement) = stmt.if_start_offset
 end_offset(stmt::LoxIfStatement) = stmt.else_branch === nothing ? end_offset(stmt.then_branch) : end_offset(stmt.else_branch)
 
+struct LoxWhileStatement{Tcond<:LoxExpr,Tbody<:LoxStatement} <: LoxStatement
+    condition::Tcond
+    body::Tbody
+    while_start_offset::Int
+end
+start_offset(stmt::LoxWhileStatement) = stmt.while_start_offset
+end_offset(stmt::LoxWhileStatement) = end_offset(stmt.body)
+
 struct LoxBlockStatement <: LoxStatement
     statements::Vector{LoxDeclaration}
     start_offset::Int
@@ -242,6 +250,8 @@ to_sexp(stmt::LoxBlockStatement) =
     "(block " * join(map(to_sexp, stmt.statements), " ") * ")"
 to_sexp(stmt::LoxIfStatement) = "(if " * to_sexp(stmt.condition) * " " * to_sexp(stmt.then_branch) *
     (stmt.else_branch === nothing ? "" : " " * to_sexp(stmt.else_branch)) * ")"
+to_sexp(stmt::LoxWhileStatement) =
+    "(while " * to_sexp(stmt.condition) * " " * to_sexp(stmt.body) * ")"
 to_sexp(prg::LoxProgramme) = join(map(to_sexp, prg.statements), "\n")
 
 ### The parser state
@@ -521,6 +531,30 @@ function if_statement!(s::ParserState)::LoxIfStatement
     return LoxIfStatement(condition_expr, then_stmt, else_stmt, if_start_offset)
 end
 
+function while_statement!(s::ParserState)::LoxWhileStatement
+    next_ltoken = peek_next(s)
+    next_ltoken.token isa Lexer.While || error("unreachable: while_statement! called without while token")
+    while_start_offset = next_ltoken.start_offset
+    consume_next!(s) # 'while'
+    # check for open paren
+    paren = peek_next(s)
+    if !(paren.token isa Lexer.LeftParen)
+        throw(LoxParseError(get_next_offset(s), "expected '(' after 'while'"))
+    end
+    consume_next!(s) # '('
+    # condition
+    condition_expr = expression!(s)
+    # check for close paren
+    paren = peek_next(s)
+    if !(paren.token isa Lexer.RightParen)
+        throw(LoxParseError(get_next_offset(s), "expected ')' after while condition"))
+    end
+    consume_next!(s) # ')'
+    # body
+    body_stmt = statement!(s)
+    return LoxWhileStatement(condition_expr, body_stmt, while_start_offset)
+end
+
 function statement!(s::ParserState)::LoxStatement
     next_ltoken = peek_next(s)
     # Handle block statements
@@ -530,6 +564,10 @@ function statement!(s::ParserState)::LoxStatement
     # Handle if statements
     if next_ltoken.token isa Lexer.If
         return if_statement!(s)
+    end
+    # Handle while statements
+    if next_ltoken.token isa Lexer.While
+        return while_statement!(s)
     end
     # Everything else: print statement, or a simple expression statement
     is_print_statement, print_start_offset = begin

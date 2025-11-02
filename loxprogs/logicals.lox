@@ -14,4 +14,4 @@ print true or false and false;    // or is lower precedence, so this is true
 
 print 1 or 2;       // should be 1.0
 print nil and nil;  // should be nil
-print 1 and (1/0);  // should be 1.0 (shortcircuiting)
+print 1 or (1/0);   // should be 1.0 (shortcircuiting)

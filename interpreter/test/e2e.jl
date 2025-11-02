@@ -112,6 +112,15 @@ end
         )
     end
 
+    @testset "loops" begin
+        ftest(
+            "../../loxprogs/while.lox",
+            ["1.0\n2.0\n3.0\n4.0\n5.0"],
+            String[],
+            0
+        )
+    end
+
     @testset "errors and reporting" begin
         ftest(
             "../../loxprogs/badadd.lox",

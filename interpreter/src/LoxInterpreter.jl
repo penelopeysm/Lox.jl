@@ -15,24 +15,28 @@ const EXIT_FILE_NOT_FOUND = 64
 const EXIT_RUNTIME_ERROR = 65
 
 """
-    run_file(filename::AbstractString, silent::Bool=false)::Nothing
+    run_file(filename::AbstractString, silent::Bool=false)::Int
 
 Execute a Lox source file.
+
+Returns an exit code indicating success or failure.
 """
-function run_file(filename::AbstractString, silent::Bool=false)::Nothing
+function run_file(filename::AbstractString, silent::Bool=false)::Int
     try
         contents = strip(read(filename, String))
         location = Location(filename, 1, 0)
         maybe_error = run(contents, location, silent)
         if maybe_error !== nothing
             report_error(maybe_error, contents, location)
-            exit(EXIT_RUNTIME_ERROR)
+            return EXIT_RUNTIME_ERROR
+        else
+            return EXIT_SUCCESS
         end
     catch e
         if e isa SystemError
             printstyled(Base.stderr, "error: "; color=:red, bold=true)
             println(Base.stderr, "file `$filename` was not found")
-            exit(EXIT_FILE_NOT_FOUND)
+            return EXIT_FILE_NOT_FOUND
         end
         # Error in the compiler itself
         rethrow(e)
