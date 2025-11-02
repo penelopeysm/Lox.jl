@@ -123,191 +123,156 @@ to_sexp(var_decl::LoxVarDeclaration{Tex}) where {Tex} =
 to_sexp(stmt::LoxBlockStatement) = "(block " * join(map(to_sexp, stmt.statements), " ") * ")"
 to_sexp(prg::LoxProgramme) = join(map(to_sexp, prg.statements), "\n")
 
-function expression(
-    tokens_read::Int,
-    tokens::Vector{Lexer.Token},
-    start_loc::Location,
-    parse_errors::Vector{LoxParseError},
-)::Tuple{Int,LoxExpr}
-    return equality(tokens_read, tokens, start_loc, parse_errors)
+mutable struct ParserState
+    tokens_read::Int
+    tokens::Vector{Lexer.LocatedToken}
+    # TODO: remove start_loc
+    start_loc::Location
+    parse_errors::Vector{LoxParseError}
 end
 
-function left_associative_binary(
-    tokens_read::Int,
-    tokens::Vector{Lexer.Token},
-    start_loc::Location,
-    parse_errors::Vector{LoxParseError},
-    operand_parser::Function,
+function peek_next(s::ParserState)::Lexer.Token
+    return s.tokens[s.tokens_read+1].token
+end
+function consume_next!(s::ParserState)::Nothing
+    s.tokens_read += 1
+    return nothing
+end
+function add_error!(s::ParserState, e::LoxParseError)::Nothing
+    push!(s.parse_errors, e)
+    return nothing
+end
+
+expression!(s::ParserState)::LoxExpr = equality!(s)
+
+function left_associative_binary!(
+    s::ParserState,
+    operand_parser!::Function,
     operator_mapping::Dict{<:Lexer.Token,<:LoxBinaryOp},
-)::Tuple{Int,LoxExpr}
-    tokens_read, left_expr = operand_parser(tokens_read, tokens, start_loc, parse_errors)
-    next_token = tokens[tokens_read+1]
+)::LoxExpr
+    left_expr = operand_parser!(s)
+    next_token = peek_next(s)
     while haskey(operator_mapping, next_token)
         # consume the operator
-        tokens_read += 1
+        consume_next!(s)
         operator = operator_mapping[next_token]
-        tokens_read, right_expr =
-            operand_parser(tokens_read, tokens, start_loc, parse_errors)
+        right_expr = operand_parser!(s)
         left_expr = LoxBinary(operator, left_expr, right_expr)
-        next_token = tokens[tokens_read+1]
+        next_token = peek_next(s)
     end
-    return tokens_read, left_expr
+    return left_expr
 end
 
-function equality(
-    tokens_read::Int,
-    tokens::Vector{Lexer.Token},
-    start_loc::Location,
-    parse_errors::Vector{LoxParseError},
-)::Tuple{Int,LoxExpr}
+function equality!(s::ParserState)::LoxExpr
     operator_mapping =
         Dict(Lexer.EqualEqual() => EqualEqual(), Lexer.BangEqual() => BangEqual())
-    return left_associative_binary(
-        tokens_read,
-        tokens,
-        start_loc,
-        parse_errors,
-        comparison,
-        operator_mapping,
-    )
+    return left_associative_binary!(s, comparison!, operator_mapping)
 end
 
-function comparison(
-    tokens_read::Int,
-    tokens::Vector{Lexer.Token},
-    start_loc::Location,
-    parse_errors::Vector{LoxParseError},
-)::Tuple{Int,LoxExpr}
+function comparison!(s::ParserState)::LoxExpr
     operator_mapping = Dict(
         Lexer.Less() => LessThan(),
         Lexer.LessEqual() => LessThanEqual(),
         Lexer.Greater() => GreaterThan(),
         Lexer.GreaterEqual() => GreaterThanEqual(),
     )
-    return left_associative_binary(
-        tokens_read,
-        tokens,
-        start_loc,
-        parse_errors,
-        term,
+    return left_associative_binary!(
+        s,
+        term!,
         operator_mapping,
     )
 end
 
-function term(
-    tokens_read::Int,
-    tokens::Vector{Lexer.Token},
-    start_loc::Location,
-    parse_errors::Vector{LoxParseError},
-)::Tuple{Int,LoxExpr}
+function term!(s::ParserState)::LoxExpr
     operator_mapping = Dict(Lexer.Plus() => Add(), Lexer.Minus() => Subtract())
-    return left_associative_binary(
-        tokens_read,
-        tokens,
-        start_loc,
-        parse_errors,
-        factor,
+    return left_associative_binary!(
+        s,
+        factor!,
         operator_mapping,
     )
 end
 
-function factor(
-    tokens_read::Int,
-    tokens::Vector{Lexer.Token},
-    start_loc::Location,
-    parse_errors::Vector{LoxParseError},
-)::Tuple{Int,LoxExpr}
+function factor!(s::ParserState)::LoxExpr
     operator_mapping = Dict(Lexer.Star() => Multiply(), Lexer.Slash() => Divide())
-    return left_associative_binary(
-        tokens_read,
-        tokens,
-        start_loc,
-        parse_errors,
-        unary,
+    return left_associative_binary!(
+        s,
+        unary!,
         operator_mapping,
     )
 end
 
-function unary(
-    tokens_read::Int,
-    tokens::Vector{Lexer.Token},
-    start_loc::Location,
-    parse_errors::Vector{LoxParseError},
-)::Tuple{Int,LoxExpr}
-    next_token = tokens[tokens_read+1]
+function unary!(s::ParserState)::LoxExpr
+    next_token = peek_next(s)
     if next_token isa Lexer.Bang || next_token isa Lexer.Minus
-        tokens_read += 1
+        consume_next!(s)
         operator = if next_token isa Lexer.Bang
             Bang()
         elseif next_token isa Lexer.Minus
             MinusUnary()
         else
+            # TODO: refactor to avoid this
             error("wut")
         end
-        tokens_read, right_expr = unary(tokens_read, tokens, start_loc, parse_errors)
-        return tokens_read, LoxUnary(operator, right_expr)
+        right_expr = unary!(s)
+        return LoxUnary(operator, right_expr)
     else
-        return primary(tokens_read, tokens, start_loc, parse_errors)
+        return primary!(s)
     end
 end
 
-function primary(
-    tokens_read::Int,
-    tokens::Vector{Lexer.Token},
-    start_loc::Location,
-    parse_errors::Vector{LoxParseError},
-)::Tuple{Int,LoxExpr}
-    next_token = tokens[tokens_read+1]
+function primary!(s::ParserState)::LoxExpr
+    next_token = peek_next(s)
     if next_token isa Lexer.False
-        return tokens_read + 1, LoxLiteral(false)
+        consume_next!(s)
+        return LoxLiteral(false)
     elseif next_token isa Lexer.True
-        return tokens_read + 1, LoxLiteral(true)
+        consume_next!(s)
+        return LoxLiteral(true)
     elseif next_token isa Lexer.Nil
-        return tokens_read + 1, LoxLiteral(nothing)
+        consume_next!(s)
+        return LoxLiteral(nothing)
     elseif next_token isa Lexer.LoxNumber || next_token isa Lexer.LoxString
-        return tokens_read + 1, LoxLiteral(next_token.value)
+        consume_next!(s)
+        return LoxLiteral(next_token.value)
     elseif next_token isa Lexer.Identifier
-        return tokens_read + 1, LoxVariable(next_token.lexeme)
+        consume_next!(s)
+        return LoxVariable(next_token.lexeme)
     elseif next_token isa Lexer.LeftParen
-        tokens_read += 1
-        tokens_read, expr = expression(tokens_read, tokens, start_loc, parse_errors)
-        if tokens[tokens_read+1] isa Lexer.RightParen
-            # Consume the right paren
-            tokens_read += 1
-            return tokens_read, LoxGrouping(expr)
+        consume_next!(s)
+        expr = expression!(s)
+        if peek_next(s) isa Lexer.RightParen
+            consume_next!(s)
+            return LoxGrouping(expr)
         else
-            throw(LoxParseError(start_loc, "Expected ')' after expression"))
+            throw(LoxParseError(s.start_loc, "Expected ')' after expression"))
         end
     else
         # parse failure
-        throw(LoxParseError(start_loc, "Parse error: " * string(next_token)))
+        throw(LoxParseError(s.start_loc, "Parse error: " * string(next_token)))
     end
 end
 
 """
 Consume tokens until we reach somewhere we can resume parsing from.
 
-In particular, this function returns `tokens_read` such that the _next_ token (i.e.
-`tokens[tokens_read + 1]`) is the first token that parsing could conceivably begin from.
+In particular, this function mutates `s` such that the _next_ token (i.e. `peek_next(s)`) is
+the first token that parsing could conceivably begin from.
 
-If there are no such tokens, then this function returns `tokens_read` such that
-`tokens[tokens_read + 1]` is the EOF token.
+If there are no such tokens, then this function mutates `s` such that `peek_next(s)` is the
+EOF token.
 """
-function synchronise(tokens_read::Int, tokens::Vector{Lexer.Token})::Int
-    # Skip over the first token, because we failed to parse it
-    tokens_read += 1
+function synchronise!(s::ParserState)
     while true
-        # Check the current token first before looking ahead, because there might
-        # not be anything to look ahead to
-        this_token = tokens[tokens_read]
-        if this_token isa Lexer.Semicolon
-            return tokens_read
+        if peek_next(s) isa Lexer.Semicolon
+            consume_next!(s)
+            return
         end
-        if this_token isa Lexer.Eof
-            return tokens_read - 1
+        if peek_next(s) isa Lexer.Eof
+            return
         end
         # Then look ahead
-        next_token = tokens[tokens_read+1]
+        consume_next!(s)
+        next_token = peek_next(s)
         if (
             next_token isa Lexer.Class ||
             next_token isa Lexer.Fun ||
@@ -319,122 +284,101 @@ function synchronise(tokens_read::Int, tokens::Vector{Lexer.Token})::Int
             next_token isa Lexer.Return)
             break
         end
-        tokens_read += 1
     end
-    return tokens_read
 end
 
-function var_declaration(
-    tokens_read::Int,
-    tokens::Vector{Lexer.Token},
-    start_loc::Location,
-    parse_errors::Vector{LoxParseError},
-)::Tuple{Int,LoxDeclaration}
+function var_declaration!(s::ParserState)::LoxVarDeclaration
     # consume the 'var' token
-    tokens[tokens_read+1] isa Lexer.Var || error("var_declaration called without var token")
-    tokens_read += 1
+    peek_next(s) isa Lexer.Var || error("var_declaration called without var token")
+    consume_next!(s)
     # get identifier
-    if tokens[tokens_read+1] isa Lexer.Identifier
-        identifier_name = tokens[tokens_read+1].lexeme
-        tokens_read += 1
+    next_token = peek_next(s)
+    if next_token isa Lexer.Identifier
+        identifier_name = next_token.lexeme
+        consume_next!(s)
         # check for initialisation value
-        if tokens[tokens_read+1] isa Lexer.Equal
-            tokens_read += 1
-            tokens_read, init_expr =
-                expression(tokens_read, tokens, start_loc, parse_errors)
-            if tokens[tokens_read+1] isa Lexer.Semicolon
-                tokens_read += 1
-                return tokens_read, LoxVarDeclaration(identifier_name, init_expr)
+        if peek_next(s) isa Lexer.Equal
+            consume_next!(s)
+            init_expr =
+                expression!(s)
+            if peek_next(s) isa Lexer.Semicolon
+                consume_next!(s)
+                return LoxVarDeclaration(identifier_name, init_expr)
             else
                 throw(
-                    LoxParseError(start_loc, "Expected ';' after variable initialisation"),
+                    LoxParseError(s.start_loc, "Expected ';' after variable initialisation"),
                 )
             end
         else
-            return tokens_read, LoxVarDeclaration(identifier_name, nothing)
+            return LoxVarDeclaration(identifier_name, nothing)
         end
     else
-        e = LoxParseError(start_loc, "Expected identifier after 'var'")
-        push!(parse_errors, e)
+        e = LoxParseError(s.start_loc, "Expected identifier after 'var'")
+        add_error!(s, e)
+        # TODO: Do we need this?
         throw(e)
     end
 end
 
-function declaration(
-    tokens_read::Int,
-    tokens::Vector{Lexer.Token},
-    start_loc::Location,
-    parse_errors::Vector{LoxParseError},
-)::Tuple{Int,LoxDeclaration}
-    return if tokens[tokens_read+1] isa Lexer.Var
-        var_declaration(tokens_read, tokens, start_loc, parse_errors)
+function declaration!(s::ParserState)::LoxDeclaration
+    return if peek_next(s) isa Lexer.Var
+        var_declaration!(s)
     else
-        statement(tokens_read, tokens, start_loc, parse_errors)
+        statement!(s)
     end
 end
 
-function statement(
-    tokens_read::Int,
-    tokens::Vector{Lexer.Token},
-    start_loc::Location,
-    parse_errors::Vector{LoxParseError},
-)::Tuple{Int,LoxStatement}
+function statement!(s::ParserState)::LoxStatement
     # Handle block statements
-    if tokens[tokens_read+1] isa Lexer.LeftBrace
-        tokens_read += 1
+    if peek_next(s) isa Lexer.LeftBrace
+        consume_next!(s)
         decls = LoxDeclaration[]
-        while !(tokens[tokens_read+1] isa Lexer.RightBrace)
-            tokens_read, decl = declaration(tokens_read, tokens, start_loc, parse_errors)
+        while !(peek_next(s) isa Lexer.RightBrace)
+            decl = declaration!(s)
             push!(decls, decl)
         end
-        if tokens[tokens_read+1] isa Lexer.RightBrace
-            tokens_read += 1
+        if peek_next(s) isa Lexer.RightBrace
+            consume_next!(s)
         end
-        return tokens_read, LoxBlockStatement(decls)
+        return LoxBlockStatement(decls)
     end
     # Everything else: print statement, or a simple expression statement
-    if tokens[tokens_read+1] isa Lexer.Print
-        tokens_read += 1
+    if peek_next(s) isa Lexer.Print
+        consume_next!(s)
         is_print_statement = true
     else
         is_print_statement = false
     end
-    tokens_read, expr = expression(tokens_read, tokens, start_loc, parse_errors)
-    if tokens[tokens_read+1] isa Lexer.Semicolon
-        tokens_read += 1
-        if is_print_statement
-            return tokens_read, LoxPrintStatement(expr)
+    expr = expression!(s)
+    if peek_next(s) isa Lexer.Semicolon
+        consume_next!(s)
+        return if is_print_statement
+            LoxPrintStatement(expr)
         else
-            return tokens_read, LoxExprStatement(expr)
+            LoxExprStatement(expr)
         end
     else
-        throw(LoxParseError(start_loc, "Expected ';' after expression"))
+        throw(LoxParseError(s.start_loc, "Expected ';' after expression"))
     end
 end
 
-function programme(
-    tokens_read::Int,
-    tokens::Vector{Lexer.Token},
-    start_loc::Location,
-    parse_errors::Vector{LoxParseError},
-)::Tuple{Int,LoxProgramme}
+function programme!(s::ParserState)::LoxProgramme
     decls = LoxDeclaration[]
     while true
-        if tokens[tokens_read+1] isa Lexer.Eof
-            tokens_read += 1
+        if peek_next(s) isa Lexer.Eof
+            consume_next!(s)
             break
         else
             try
-                tokens_read, decl =
-                    declaration(tokens_read, tokens, start_loc, parse_errors)
+                decl = declaration!(s)
                 push!(decls, decl)
             catch e
                 if e isa LoxParseError
-                    tokens_read = synchronise(tokens_read, tokens)
-                    if tokens[tokens_read+1] isa Lexer.Eof
+                    synchronise!(s)
+                    if peek_next(s) isa Lexer.Eof
                         # Attempted to synchronise, but reached EOF, i.e. there
                         # wasn't a meaningful place to resume parsing from
-                        push!(parse_errors, e)
+                        add_error!(s, e)
                     else
                         continue
                     end
@@ -444,7 +388,7 @@ function programme(
             end
         end
     end
-    return tokens_read, LoxProgramme(decls)
+    return LoxProgramme(decls)
 end
 
 function parse(
@@ -452,9 +396,10 @@ function parse(
     start_loc::Location,
 )::Tuple{LoxProgramme,Vector{LoxParseError}}
     parse_errors = LoxParseError[]
-    tokens_read, prog = programme(0, tokens, start_loc, parse_errors)
-    if tokens_read < length(tokens)
-        throw(LoxParseError(start_loc, "Extra tokens: " * string(tokens[tokens_read:end])))
+    s = ParserState(0, tokens, start_loc, parse_errors)
+    prog = programme!(s)
+    if s.tokens_read < length(s.tokens)
+        throw(LoxParseError(start_loc, "Extra tokens: " * string(tokens[s.tokens_read:end])))
     end
     return prog, parse_errors
 end
