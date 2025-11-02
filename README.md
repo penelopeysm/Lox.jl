@@ -22,4 +22,11 @@ using LoxInterpreter
 run_prompt()
 ```
 
-Ctrl-D will return you to the Julia REPL, where you can use e.g. Revise.jl as usual and call `run_prompt()` again.
+Ctrl-D will return you to the Julia REPL; if you have Revise.jl loaded you can call `run_prompt()` again and your changes will be reflected.
+
+To run a file from the Julia REPL:
+
+```julia
+using LoxInterpreter
+run_file("path/to/lox_file.lox")
+```
