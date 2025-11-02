@@ -15,11 +15,11 @@ const EXIT_FILE_NOT_FOUND = 64
 const EXIT_RUNTIME_ERROR = 65
 
 """
-    run_file(filename::AbstractString, silent::Bool)::Nothing
+    run_file(filename::AbstractString, silent::Bool=false)::Nothing
 
 Execute a Lox source file.
 """
-function run_file(filename::AbstractString, silent::Bool)::Nothing
+function run_file(filename::AbstractString, silent::Bool=false)::Nothing
     try
         contents = strip(read(filename, String))
         location = Location(filename, 1, 0)
@@ -40,7 +40,7 @@ function run_file(filename::AbstractString, silent::Bool)::Nothing
 end
 
 """
-    run_prompt(silent::Bool)::Nothing
+    run_prompt(silent::Bool=false)::Nothing
 
 Launch an interactive Lox REPL.
 
@@ -49,7 +49,7 @@ Julia REPL, or through ReplMaker.jl.
 
 TODO: Handle Ctrl-C (try/catch InterruptException doesn't seem to work)
 """
-function run_prompt(silent::Bool)::Nothing
+function run_prompt(silent::Bool=false)::Nothing
     println("Running prompt. Use two newlines to finish a snippet.")
     line_number = 1
     while true
