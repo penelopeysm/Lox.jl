@@ -83,7 +83,7 @@ mutable struct LexerState{S<:AbstractString}
 end
 
 
-function increment_position!(s::LexerState, n::Int=1)
+function increment_position!(s::LexerState, n::Int = 1)
     s.position += n
 end
 
@@ -130,10 +130,7 @@ returns `false`.
 
 If there are no more characters to read, returns `false`.
 """
-function get_char_if_eq!(
-    s::LexerState,
-    expected_char::Char,
-)::Bool
+function get_char_if_eq!(s::LexerState, expected_char::Char)::Bool
     if is_at_end(s)
         return false
     else
@@ -153,10 +150,7 @@ end
 Check if the next character in `s.source` is equal to `expected_char`, without
 consuming it.
 """
-function peek_char_eq(
-    s::LexerState,
-    expected_char::Char,
-)::Bool
+function peek_char_eq(s::LexerState, expected_char::Char)::Bool
     if is_at_end(s)
         return false
     else
@@ -168,10 +162,7 @@ end
 Read all characters while a predicate `pred` is true. Does not include the
 first character that does not match the predicate.
 """
-function consume_while!(
-    s::LexerState,
-    pred::Function,
-)::String
+function consume_while!(s::LexerState, pred::Function)::String
     word = ""
     while !is_at_end(s)
         next = s.source[s.position+1]

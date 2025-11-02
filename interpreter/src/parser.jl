@@ -120,7 +120,8 @@ to_sexp(stmt::LoxStatement) = "(stmt " * to_sexp(stmt.expression) * ")"
 to_sexp(var_decl::LoxVarDeclaration{Nothing}) = "(var " * var_decl.identifier * ")"
 to_sexp(var_decl::LoxVarDeclaration{Tex}) where {Tex} =
     "(var " * var_decl.identifier * " = " * to_sexp(var_decl.initial_expr) * ")"
-to_sexp(stmt::LoxBlockStatement) = "(block " * join(map(to_sexp, stmt.statements), " ") * ")"
+to_sexp(stmt::LoxBlockStatement) =
+    "(block " * join(map(to_sexp, stmt.statements), " ") * ")"
 to_sexp(prg::LoxProgramme) = join(map(to_sexp, prg.statements), "\n")
 
 mutable struct ParserState
@@ -176,29 +177,17 @@ function comparison!(s::ParserState)::LoxExpr
         Lexer.Greater() => GreaterThan(),
         Lexer.GreaterEqual() => GreaterThanEqual(),
     )
-    return left_associative_binary!(
-        s,
-        term!,
-        operator_mapping,
-    )
+    return left_associative_binary!(s, term!, operator_mapping)
 end
 
 function term!(s::ParserState)::LoxExpr
     operator_mapping = Dict(Lexer.Plus() => Add(), Lexer.Minus() => Subtract())
-    return left_associative_binary!(
-        s,
-        factor!,
-        operator_mapping,
-    )
+    return left_associative_binary!(s, factor!, operator_mapping)
 end
 
 function factor!(s::ParserState)::LoxExpr
     operator_mapping = Dict(Lexer.Star() => Multiply(), Lexer.Slash() => Divide())
-    return left_associative_binary!(
-        s,
-        unary!,
-        operator_mapping,
-    )
+    return left_associative_binary!(s, unary!, operator_mapping)
 end
 
 function unary!(s::ParserState)::LoxExpr
@@ -281,7 +270,8 @@ function synchronise!(s::ParserState)
             next_token isa Lexer.If ||
             next_token isa Lexer.While ||
             next_token isa Lexer.Print ||
-            next_token isa Lexer.Return)
+            next_token isa Lexer.Return
+        )
             break
         end
     end
@@ -299,14 +289,16 @@ function var_declaration!(s::ParserState)::LoxVarDeclaration
         # check for initialisation value
         if peek_next(s) isa Lexer.Equal
             consume_next!(s)
-            init_expr =
-                expression!(s)
+            init_expr = expression!(s)
             if peek_next(s) isa Lexer.Semicolon
                 consume_next!(s)
                 return LoxVarDeclaration(identifier_name, init_expr)
             else
                 throw(
-                    LoxParseError(s.start_loc, "Expected ';' after variable initialisation"),
+                    LoxParseError(
+                        s.start_loc,
+                        "Expected ';' after variable initialisation",
+                    ),
                 )
             end
         else
@@ -399,7 +391,9 @@ function parse(
     s = ParserState(0, tokens, start_loc, parse_errors)
     prog = programme!(s)
     if s.tokens_read < length(s.tokens)
-        throw(LoxParseError(start_loc, "Extra tokens: " * string(tokens[s.tokens_read:end])))
+        throw(
+            LoxParseError(start_loc, "Extra tokens: " * string(tokens[s.tokens_read:end])),
+        )
     end
     return prog, parse_errors
 end

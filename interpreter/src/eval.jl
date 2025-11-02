@@ -158,7 +158,10 @@ function lox_exec(stmt::Parser.LoxBlockStatement, env::LoxEnvironment)
     end
     nothing
 end
-function lox_exec(prg::Parser.LoxProgramme, env::LoxEnvironment=LoxEnvironment(nothing, Dict{String,Any}()))
+function lox_exec(
+    prg::Parser.LoxProgramme,
+    env::LoxEnvironment = LoxEnvironment(nothing, Dict{String,Any}()),
+)
     for stmt in prg.statements
         lox_exec(stmt, env)
     end
