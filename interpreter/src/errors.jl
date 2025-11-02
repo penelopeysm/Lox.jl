@@ -16,23 +16,26 @@ end
 Abstract interface for Lox errors.
 """
 abstract type LoxError <: Exception end
-function get_offset(::LoxError)::Int end
+function get_offset(::LoxError)::Tuple{Int,Int} end
 function get_message(::LoxError)::String end
 
 struct LoxStartupError <: LoxError
     message::String
 end
-get_offset(::LoxStartupError) = 0
+get_offset(::LoxStartupError) = (1, 2)
 get_message(err::LoxStartupError) = err.message
 
 function show_error(err::LoxError, source::AbstractString, start_loc::Location)
-    loc, contents = identify_location(get_offset(err), source, start_loc)
+    start_offset, end_offset = get_offset(err)
+    loc, contents = identify_location(start_offset, source, start_loc)
+    @show start_offset, loc, get_line_beginning_offsets(source)
     io = IOBuffer()
     ctx = IOContext(io, :color => true)
     printstyled(ctx, "error @ $(loc.file):$(loc.line):$(loc.column)", color=:magenta)
     println(ctx)
     print(ctx, "    " * contents * "\n")
-    printstyled(ctx, "    " * " "^(loc.column - 1) * "^ " * get_message(err), color=:blue)
+    ncarets = end_offset - start_offset
+    printstyled(ctx, "    " * " "^(loc.column - 1) * ("^"^ncarets) * " " * get_message(err), color=:blue)
     return String(take!(io))
 end
 report_error(err::LoxError, source::AbstractString, start_loc::Location) = println(Base.stderr, show_error(err, source, start_loc))

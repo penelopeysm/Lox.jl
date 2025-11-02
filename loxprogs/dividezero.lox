@@ -1,5 +1,5 @@
 // This should also print a nice error
 
-var x = 1;
-var y = 0;
-var z = x / y;
+var hello = 1;
+var world = 0;
+var z = hello / world;

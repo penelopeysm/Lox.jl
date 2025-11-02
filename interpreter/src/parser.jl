@@ -9,24 +9,30 @@ struct LoxParseError <: Errors.LoxError
     offset::Int
     message::String
 end
-Errors.get_offset(err::LoxParseError) = err.offset
+# TODO: fix end offset
+Errors.get_offset(err::LoxParseError) = (err.offset, err.offset + 1)
 Errors.get_message(err::LoxParseError) = err.message
 
 ### AST types
 
+# TODO: Unify `offset` fields: we want all expressions to have start and end offsets.
 abstract type LoxExpr end
 
 # In theory, we _could_ use these type parameters for static type checking
 # purposes...
 struct LoxLiteral{T<:Union{Float64,Bool,String,Nothing}} <: LoxExpr
     value::T
-    offset::Int
-    LoxLiteral(value::Number, offset) = new{Float64}(Float64(value), offset)
-    LoxLiteral(value::T, offset) where {T} = new{T}(value, offset)
+    start_offset::Int
+    end_offset::Int
 end
 struct LoxVariable <: LoxExpr
     identifier::String
-    offset::Int
+    start_offset::Int
+    end_offset::Int
+    function LoxVariable(identifier::String, start_offset::Int)
+        variable_strlen = length(identifier)
+        return new(identifier, start_offset, start_offset + variable_strlen)
+    end
 end
 
 abstract type LoxDeclaration end
@@ -131,9 +137,9 @@ to_sexp_op(op::Bang) = "!"
 to_sexp_op(op::MinusUnary) = "-"
 to_sexp(stmt::LoxPrintStatement) = "(print " * to_sexp(stmt.expression) * ")"
 to_sexp(stmt::LoxStatement) = "(stmt " * to_sexp(stmt.expression) * ")"
-to_sexp(var_decl::LoxVarDeclaration{Nothing}) = "(var " * to_sexp(var_decl.variable) * ")"
+to_sexp(var_decl::LoxVarDeclaration{Nothing}) = "(decl " * to_sexp(var_decl.variable) * ")"
 to_sexp(var_decl::LoxVarDeclaration{Tex}) where {Tex} =
-    "(var " * to_sexp(var_decl.variable) * " = " * to_sexp(var_decl.initial_expr) * ")"
+    "(decl " * to_sexp(var_decl.variable) * " = " * to_sexp(var_decl.initial_expr) * ")"
 to_sexp(stmt::LoxBlockStatement) =
     "(block " * join(map(to_sexp, stmt.statements), " ") * ")"
 to_sexp(prg::LoxProgramme) = join(map(to_sexp, prg.statements), "\n")
@@ -251,16 +257,22 @@ function primary!(s::ParserState)::LoxExpr
     next_offset = get_next_offset(s)
     if next_token isa Lexer.False
         consume_next!(s)
-        return LoxLiteral(false, next_offset)
+        return LoxLiteral(false, next_offset, next_offset + 5)
     elseif next_token isa Lexer.True
         consume_next!(s)
-        return LoxLiteral(true, next_offset)
+        return LoxLiteral(true, next_offset, next_offset + 4)
     elseif next_token isa Lexer.Nil
         consume_next!(s)
-        return LoxLiteral(nothing, next_offset)
-    elseif next_token isa Lexer.LoxNumber || next_token isa Lexer.LoxString
+        return LoxLiteral(nothing, next_offset, next_offset + 3)
+    elseif next_token isa Lexer.LoxNumber
         consume_next!(s)
-        return LoxLiteral(next_token.value, next_offset)
+        literal_strlen = length(next_token.value)
+        # automatic conversion to float(!)
+        return LoxLiteral(Base.parse(Float64, next_token.value), next_offset, next_offset + literal_strlen)
+    elseif next_token isa Lexer.LoxString
+        consume_next!(s)
+        literal_strlen = length(next_token.value) + 2 # account for quotes
+        return LoxLiteral(next_token.value, next_offset, next_offset + literal_strlen)
     elseif next_token isa Lexer.Identifier
         consume_next!(s)
         return LoxVariable(next_token.lexeme, next_offset)

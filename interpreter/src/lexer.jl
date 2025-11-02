@@ -6,7 +6,8 @@ struct LoxLexError <: Errors.LoxError
     offset::Int
     message::String
 end
-Errors.get_offset(err::LoxLexError) = err.offset
+# TODO: Fix end offset
+Errors.get_offset(err::LoxLexError) = (err.offset, err.offset + 1)
 Errors.get_message(err::LoxLexError) = err.message
 
 abstract type Token end
@@ -36,7 +37,7 @@ struct LoxString <: Token
     value::String
 end
 struct LoxNumber <: Token
-    value::Float64
+    value::String
 end
 struct And <: Token end
 struct Class <: Token end
@@ -100,6 +101,9 @@ mutable struct LexerState{S<:AbstractString}
     end
 end
 
+function get_position(s::LexerState)::Int
+    return s.position
+end
 
 function increment_position!(s::LexerState, n::Int=1)
     s.position += n
@@ -109,8 +113,8 @@ function is_at_end(s::LexerState)::Bool
     return s.position >= s.source_len
 end
 
-function add_token!(s::LexerState, token::Token)
-    push!(s.tokens, LocatedToken(token, s.position))
+function add_token!(s::LexerState, token::Token, position::Int)
+    push!(s.tokens, LocatedToken(token, position))
 end
 
 function add_error!(s::LexerState, error::LoxLexError)
@@ -249,51 +253,52 @@ and `s.position` is updated.
 """
 function read_next_token!(s::LexerState)::Nothing
     next_char = get_char!(s)
+    posn = get_position(s) # note that this is _after_ consuming next_char
     if isnothing(next_char)
         throw(LoxLexError(s.position, "Unexpected end of input"))
     elseif next_char == '('
-        add_token!(s, LeftParen())
+        add_token!(s, LeftParen(), posn)
     elseif next_char == ')'
-        add_token!(s, RightParen())
+        add_token!(s, RightParen(), posn)
     elseif next_char == '{'
-        add_token!(s, LeftBrace())
+        add_token!(s, LeftBrace(), posn)
     elseif next_char == '}'
-        add_token!(s, RightBrace())
+        add_token!(s, RightBrace(), posn)
     elseif next_char == ','
-        add_token!(s, Comma())
+        add_token!(s, Comma(), posn)
     elseif next_char == '.'
-        add_token!(s, Dot())
+        add_token!(s, Dot(), posn)
     elseif next_char == '-'
-        add_token!(s, Minus())
+        add_token!(s, Minus(), posn)
     elseif next_char == '+'
-        add_token!(s, Plus())
+        add_token!(s, Plus(), posn)
     elseif next_char == ';'
-        add_token!(s, Semicolon())
+        add_token!(s, Semicolon(), posn)
     elseif next_char == '*'
-        add_token!(s, Star())
+        add_token!(s, Star(), posn)
     elseif next_char == '!'
         next_char_is_equals = get_char_if_eq!(s, '=')
         next_token = next_char_is_equals ? BangEqual() : Bang()
-        add_token!(s, next_token)
+        add_token!(s, next_token, posn)
     elseif next_char == '='
         next_char_is_equals = get_char_if_eq!(s, '=')
         next_token = next_char_is_equals ? EqualEqual() : Equal()
-        add_token!(s, next_token)
+        add_token!(s, next_token, posn)
     elseif next_char == '>'
         next_char_is_equals = get_char_if_eq!(s, '=')
         next_token = next_char_is_equals ? GreaterEqual() : Greater()
-        add_token!(s, next_token)
+        add_token!(s, next_token, posn)
     elseif next_char == '<'
         next_char_is_equals = get_char_if_eq!(s, '=')
         next_token = next_char_is_equals ? LessEqual() : Less()
-        add_token!(s, next_token)
+        add_token!(s, next_token, posn)
     elseif next_char == '/'
         next_char_is_slash = get_char_if_eq!(s, '/')
         if next_char_is_slash
             # line comment beginning with //
             consume_until!(s, '\n')
         else
-            add_token!(s, Slash())
+            add_token!(s, Slash(), posn)
         end
     elseif isspace(next_char) # whitespace is a no-op
     elseif next_char == '"'
@@ -303,7 +308,7 @@ function read_next_token!(s::LexerState)::Nothing
         if closing_quote != '"'
             throw(LoxLexError(s.position, "Unterminated string literal"))
         end
-        add_token!(s, LoxString(str))
+        add_token!(s, LoxString(str), posn)
     elseif isdigit(next_char)
         # number literal. grab the bit before the decimal point
         num = next_char * consume_while!(s, isdigit)
@@ -318,14 +323,13 @@ function read_next_token!(s::LexerState)::Nothing
             end
             # otherwise don't consume the decimal point.
         end
-        value = parse(Float64, num)
-        add_token!(s, LoxNumber(value))
+        add_token!(s, LoxNumber(num), posn)
     elseif isletter(next_char) || next_char == '_'
         # identifier or keyword
         # Note: Julia's isletter accepts Unicode letters too...
         is_valid_identifier_char(c::Char) = isletter(c) || isdigit(c) || c == '_'
         lexeme = next_char * consume_while!(s, is_valid_identifier_char)
-        add_token!(s, identifier(lexeme))
+        add_token!(s, identifier(lexeme), posn)
     else
         add_error!(s, LoxLexError(s.position, "Unexpected character: '$next_char'."))
     end
@@ -337,7 +341,7 @@ function lex(source::AbstractString)::Tuple{Vector{LocatedToken},Vector{LoxLexEr
     while !is_at_end(s)
         read_next_token!(s)
     end
-    add_token!(s, Eof())
+    add_token!(s, Eof(), get_position(s) + 1)
     return s.tokens, s.errors
 end
 

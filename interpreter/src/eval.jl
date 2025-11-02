@@ -35,20 +35,22 @@ Errors.get_message(err::LoxTypeError) = err.message
 struct LoxZeroDivisionError <: LoxEvalError
     offset::Int
 end
-Errors.get_offset(err::LoxZeroDivisionError) = err.offset
+# TODO: Fix end offset
+Errors.get_offset(err::LoxZeroDivisionError) = (err.offset, err.offset + 1)
 Errors.get_message(::LoxZeroDivisionError) = "division by zero"
 
 struct LoxRuntimeError <: LoxEvalError
     message::String
     offset::Int
 end
-Errors.get_offset(err::LoxRuntimeError) = err.offset
+# TODO: Fix end offset
+Errors.get_offset(err::LoxRuntimeError) = (err.offset, err.offset + 1)
 Errors.get_message(err::LoxRuntimeError) = err.message
 
 struct LoxUndefVarError <: LoxEvalError
     variable::Parser.LoxVariable
 end
-Errors.get_offset(err::LoxUndefVarError) = err.variable.offset
+Errors.get_offset(err::LoxUndefVarError) = (err.variable.start_offset, err.variable.end_offset)
 Errors.get_message(err::LoxUndefVarError) = "undefined variable: `$(err.variable.identifier)`"
 
 """
