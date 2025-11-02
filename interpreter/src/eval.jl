@@ -150,6 +150,14 @@ function lox_exec(stmt::Parser.LoxPrintStatement, env::LoxEnvironment)
     println(value)
     nothing
 end
+function lox_exec(stmt::Parser.LoxBlockStatement, env::LoxEnvironment)
+    # Generate a new child environment
+    new_env = LoxEnvironment(env, Dict{String,Any}())
+    foreach(stmt.statements) do child_stmt
+        lox_exec(child_stmt, new_env)
+    end
+    nothing
+end
 function lox_exec(prg::Parser.LoxProgramme, env::LoxEnvironment=LoxEnvironment(nothing, Dict{String,Any}()))
     for stmt in prg.statements
         lox_exec(stmt, env)

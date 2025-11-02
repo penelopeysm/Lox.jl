@@ -120,6 +120,7 @@ to_sexp(stmt::LoxStatement) = "(stmt " * to_sexp(stmt.expression) * ")"
 to_sexp(var_decl::LoxVarDeclaration{Nothing}) = "(var " * var_decl.identifier * ")"
 to_sexp(var_decl::LoxVarDeclaration{Tex}) where {Tex} =
     "(var " * var_decl.identifier * " = " * to_sexp(var_decl.initial_expr) * ")"
+to_sexp(stmt::LoxBlockStatement) = "(block " * join(map(to_sexp, stmt.statements), " ") * ")"
 to_sexp(prg::LoxProgramme) = join(map(to_sexp, prg.statements), "\n")
 
 function expression(
@@ -363,6 +364,20 @@ function statement(
     start_loc::Location,
     parse_errors::Vector{LoxParseError},
 )::Tuple{Int,LoxStatement}
+    # Handle block statements
+    if tokens[tokens_read+1] isa Lexer.LeftBrace
+        tokens_read += 1
+        decls = LoxDeclaration[]
+        while !(tokens[tokens_read+1] isa Lexer.RightBrace)
+            tokens_read, decl = declaration(tokens_read, tokens, start_loc, parse_errors)
+            push!(decls, decl)
+        end
+        if tokens[tokens_read+1] isa Lexer.RightBrace
+            tokens_read += 1
+        end
+        return tokens_read, LoxBlockStatement(decls)
+    end
+    # Everything else: print statement, or a simple expression statement
     if tokens[tokens_read+1] isa Lexer.Print
         tokens_read += 1
         is_print_statement = true
