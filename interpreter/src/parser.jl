@@ -2,7 +2,7 @@ module Parser
 
 # TODO: Every LoxParseError in here should have a proper location
 
-using ..Errors: LoxError, Location
+using ..Errors: Errors, LoxError, Location
 using ..Lexer: Lexer
 
 export parse, to_sexp
@@ -11,8 +11,8 @@ struct LoxParseError <: LoxError
     location::Location
     message::String
 end
-get_location(err::LoxParseError) = err.location
-get_message(err::LoxParseError) = err.message
+Errors.get_location(err::LoxParseError) = err.location
+Errors.get_message(err::LoxParseError) = err.message
 
 abstract type LoxExpr end
 
@@ -286,14 +286,29 @@ end
 
 """
 Consume tokens until we reach somewhere we can resume parsing from.
+
+In particular, this function returns `tokens_read` such that the _next_ token (i.e.
+`tokens[tokens_read + 1]`) is the first token that parsing could conceivably begin from.
+
+If there are no such tokens, then this function returns `tokens_read` such that
+`tokens[tokens_read + 1]` is the EOF token.
 """
 function synchronise(tokens_read::Int, tokens::Vector{Lexer.Token})::Int
     # Skip over the first token, because we failed to parse it
     tokens_read += 1
     while true
-        this_token, next_token = tokens[tokens_read], tokens[tokens_read+1]
-        if (this_token isa Lexer.Semicolon ||
-            this_token isa Lexer.Eof ||
+        # Check the current token first before looking ahead, because there might
+        # not be anything to look ahead to
+        this_token = tokens[tokens_read]
+        if this_token isa Lexer.Semicolon
+            return tokens_read
+        end
+        if this_token isa Lexer.Eof
+            return tokens_read - 1
+        end
+        # Then look ahead
+        next_token = tokens[tokens_read+1]
+        if (
             next_token isa Lexer.Class ||
             next_token isa Lexer.Fun ||
             next_token isa Lexer.Var ||
@@ -416,7 +431,13 @@ function programme(
             catch e
                 if e isa LoxParseError
                     tokens_read = synchronise(tokens_read, tokens)
-                    continue
+                    if tokens[tokens_read+1] isa Lexer.Eof
+                        # Attempted to synchronise, but reached EOF, i.e. there
+                        # wasn't a meaningful place to resume parsing from
+                        push!(parse_errors, e)
+                    else
+                        continue
+                    end
                 else
                     rethrow(e)
                 end
