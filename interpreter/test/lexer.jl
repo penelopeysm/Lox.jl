@@ -3,13 +3,11 @@ module LexerTests
 using Test
 using LoxInterpreter: Errors, Lexer
 
-dummy_location = Errors.Location("test_suite", 1, 1)
-
 # TODO: Test location information as well
 
 @testset "lexer" begin
     function test_lexes_to(input, expected_tokens)
-        located_tokens, lex_errors = Lexer.lex(input, dummy_location)
+        located_tokens, lex_errors = Lexer.lex(input)
         @test map(lt -> lt.token, located_tokens[1:end-1]) == expected_tokens
         @test located_tokens[end].token == Lexer.Eof()
         @test isempty(lex_errors)
@@ -41,10 +39,10 @@ dummy_location = Errors.Location("test_suite", 1, 1)
     test_lexes_to("<=", [Lexer.LessEqual()])
 
     # Numbers
-    test_lexes_to("1.5", [Lexer.LoxNumber(1.5)])
-    test_lexes_to("1.52", [Lexer.LoxNumber(1.52)])
-    test_lexes_to("1.", [Lexer.LoxNumber(1), Lexer.Dot()]) # this will fail to parse
-    test_lexes_to("1", [Lexer.LoxNumber(1)])
+    test_lexes_to("1.5", [Lexer.LoxNumber("1.5")])
+    test_lexes_to("1.52", [Lexer.LoxNumber("1.52")])
+    test_lexes_to("1.", [Lexer.LoxNumber("1"), Lexer.Dot()]) # this will fail to parse
+    test_lexes_to("1", [Lexer.LoxNumber("1")])
 
     # Strings
     test_lexes_to("\"hello\"", [Lexer.LoxString("hello")])
