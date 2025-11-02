@@ -15,15 +15,15 @@ const EXIT_FILE_NOT_FOUND = 64
 const EXIT_RUNTIME_ERROR = 65
 
 """
-    run_file(filename::AbstractString)::Nothing
+    run_file(filename::AbstractString, silent::Bool)::Nothing
 
 Execute a Lox source file.
 """
-function run_file(filename::AbstractString)::Nothing
+function run_file(filename::AbstractString, silent::Bool)::Nothing
     try
         contents = strip(read(filename, String))
         location = Location(filename, 1, 0)
-        maybe_error = run(contents, location)
+        maybe_error = run(contents, location, silent)
         if maybe_error !== nothing
             report_error(maybe_error)
             exit(EXIT_RUNTIME_ERROR)
@@ -39,7 +39,7 @@ function run_file(filename::AbstractString)::Nothing
 end
 
 """
-    run_prompt()::Nothing
+    run_prompt(silent::Bool)::Nothing
 
 Launch an interactive Lox REPL.
 
@@ -48,7 +48,7 @@ Julia REPL, or through ReplMaker.jl.
 
 TODO: Handle Ctrl-C (try/catch InterruptException doesn't seem to work)
 """
-function run_prompt()::Nothing
+function run_prompt(silent::Bool)::Nothing
     println("Running prompt. Use two newlines to finish a snippet.")
     line_number = 1
     while true
@@ -69,7 +69,7 @@ function run_prompt()::Nothing
             end
         end
         source = strip(source)
-        isempty(source) || run(source, Location("REPL", line_number, 0))
+        isempty(source) || run(source, Location("REPL", line_number, 0), silent)
         line_number += nlines
     end
 end
@@ -88,7 +88,11 @@ function is_complete_lox_snippet(source::AbstractString)::Bool
 end
 
 """
-    run(source::AbstractString, start_loc::Errors.Location)::Union{Nothing, LoxError}
+    run(
+        source::AbstractString,
+        start_loc::Errors.Location,
+        silent::Bool
+    )::Union{Nothing, LoxError}
 
 Execute a Lox source code snippet. Returns `nothing` if successful, or a
 [`LoxError`](@ref) with diagnostic information if an error occurs.
@@ -96,10 +100,10 @@ Execute a Lox source code snippet. Returns `nothing` if successful, or a
 `starting_location` is the line number corresponding to the first line of the
 source.
 """
-function run(source::AbstractString, start_loc::Location)::Nothing
+function run(source::AbstractString, start_loc::Location, silent::Bool)::Nothing
     try
         tokens, lex_errors = Lexer.lex(source)
-        @info "Tokens: $(tokens)"
+        silent || @info "Tokens: $(tokens)"
         if !isempty(lex_errors)
             warning = "Encountered $(length(lex_errors)) lexing errors:"
             indent = " "^4
@@ -111,7 +115,7 @@ function run(source::AbstractString, start_loc::Location)::Nothing
             @warn warning
         end
         ast, parse_errors = Parser.parse(tokens)
-        @info "AST: $(Parser.to_sexp(ast))"
+        silent || @info "AST: $(Parser.to_sexp(ast))"
         if !isempty(parse_errors)
             warning = "Encountered $(length(parse_errors)) parsing errors:"
             indent = " "^4

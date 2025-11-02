@@ -15,7 +15,6 @@ Errors.get_message(err::LoxParseError) = err.message
 
 ### AST types
 
-# TODO: Unify `offset` fields: we want all expressions to have start and end offsets.
 abstract type LoxExpr end
 
 # In theory, we _could_ use these type parameters for static type checking
@@ -24,31 +23,65 @@ struct LoxLiteral{T<:Union{Float64,Bool,String,Nothing}} <: LoxExpr
     value::T
     start_offset::Int
     end_offset::Int
+    LoxLiteral(lstr::Lexer.LocatedToken{Lexer.LoxString}) = new{String}(
+        lstr.token.value,
+        lstr.start_offset,
+        lstr.end_offset,
+    )
+    LoxLiteral(lnum::Lexer.LocatedToken{Lexer.LoxNumber}) = new{Float64}(
+        Base.parse(Float64, lnum.token.value),
+        lnum.start_offset,
+        lnum.end_offset,
+    )
+    LoxLiteral(ltrue::Lexer.LocatedToken{Lexer.True}) = new{Bool}(true, ltrue.start_offset, ltrue.end_offset)
+    LoxLiteral(lfalse::Lexer.LocatedToken{Lexer.False}) = new{Bool}(false, lfalse.start_offset, lfalse.end_offset)
+    LoxLiteral(lnil::Lexer.LocatedToken{Lexer.Nil}) = new{Nothing}(nothing, lnil.start_offset, lnil.end_offset)
 end
+start_offset(l::LoxLiteral) = l.start_offset
+end_offset(l::LoxLiteral) = l.end_offset
+
 struct LoxVariable <: LoxExpr
     identifier::String
     start_offset::Int
     end_offset::Int
-    function LoxVariable(identifier::String, start_offset::Int)
-        variable_strlen = length(identifier)
-        return new(identifier, start_offset, start_offset + variable_strlen)
-    end
+    LoxVariable(liden::Lexer.LocatedToken{Lexer.Identifier}) = new(
+        liden.token.lexeme,
+        liden.start_offset,
+        liden.end_offset
+    )
 end
+start_offset(v::LoxVariable) = v.start_offset
+end_offset(v::LoxVariable) = v.end_offset
 
 abstract type LoxDeclaration end
 struct LoxVarDeclaration{Tex<:Union{LoxExpr,Nothing}} <: LoxDeclaration
+    # this is the variable itself
     variable::LoxVariable
+    # the start offset of the 'var' keyword
+    var_start_offset::Int
     initial_expr::Tex
 end
+start_offset(decl::LoxVarDeclaration) = decl.var_start_offset
+end_offset(decl::LoxVarDeclaration{Nothing}) = end_offset(decl.variable)
+end_offset(decl::LoxVarDeclaration{Tex}) where {Tex<:LoxExpr} = end_offset(decl.initial_expr)
+
 abstract type LoxStatement <: LoxDeclaration end
 struct LoxExprStatement{Tex<:LoxExpr} <: LoxStatement
     expression::Tex
+    # TODO: end offset must include semicolon
 end
+start_offset(stmt::LoxExprStatement) = start_offset(stmt.expression)
+end_offset(stmt::LoxExprStatement) = end_offset(stmt.expression)
+
 struct LoxPrintStatement{Tex<:LoxExpr} <: LoxStatement
     expression::Tex
+    # TODO: start offset must include print
+    # TODO: end offset must include semicolon
 end
+
 struct LoxBlockStatement <: LoxStatement
     statements::Vector{LoxDeclaration}
+    # TODO: start and end offsets with braces
 end
 
 struct LoxProgramme
@@ -58,55 +91,81 @@ Base.:(==)(prg1::LoxProgramme, prg2::LoxProgramme) = prg1.statements == prg2.sta
 
 # Indeed, we're very quickly reaching the point where we want GADTs...
 abstract type LoxBinaryOp end
+# NOTE: This requires that all subtypes of LoxBinaryOp have a field `ltoken`
+start_offset(b::LoxBinaryOp) = start_offset(b.ltoken)
+end_offset(b::LoxBinaryOp) = end_offset(b.ltoken)
 
 abstract type LoxBinaryEqualityOp <: LoxBinaryOp end
-struct EqualEqual <: LoxBinaryEqualityOp end
-struct BangEqual <: LoxBinaryEqualityOp end
+struct EqualEqual <: LoxBinaryEqualityOp
+    ltoken::Lexer.LocatedToken{Lexer.EqualEqual}
+end
+struct BangEqual <: LoxBinaryEqualityOp
+    ltoken::Lexer.LocatedToken{Lexer.BangEqual}
+end
 
 abstract type LoxBinaryComparisonOp <: LoxBinaryOp end
-struct LessThan <: LoxBinaryComparisonOp end
-struct LessThanEqual <: LoxBinaryComparisonOp end
-struct GreaterThan <: LoxBinaryComparisonOp end
-struct GreaterThanEqual <: LoxBinaryComparisonOp end
+struct LessThan <: LoxBinaryComparisonOp
+    ltoken::Lexer.LocatedToken{Lexer.Less}
+end
+struct LessThanEqual <: LoxBinaryComparisonOp
+    ltoken::Lexer.LocatedToken{Lexer.LessEqual}
+end
+struct GreaterThan <: LoxBinaryComparisonOp
+    ltoken::Lexer.LocatedToken{Lexer.Greater}
+end
+struct GreaterThanEqual <: LoxBinaryComparisonOp
+    ltoken::Lexer.LocatedToken{Lexer.GreaterEqual}
+end
 
 abstract type LoxBinaryMulDivOp <: LoxBinaryOp end
-struct Multiply <: LoxBinaryMulDivOp end
-struct Divide <: LoxBinaryMulDivOp end
+struct Multiply <: LoxBinaryMulDivOp
+    ltoken::Lexer.LocatedToken{Lexer.Star}
+end
+struct Divide <: LoxBinaryMulDivOp
+    ltoken::Lexer.LocatedToken{Lexer.Slash}
+end
 
 abstract type LoxBinaryAddSubOp <: LoxBinaryOp end
-struct Add <: LoxBinaryAddSubOp end
-struct Subtract <: LoxBinaryAddSubOp end
+struct Add <: LoxBinaryAddSubOp
+    ltoken::Lexer.LocatedToken{Lexer.Plus}
+end
+struct Subtract <: LoxBinaryAddSubOp
+    ltoken::Lexer.LocatedToken{Lexer.Minus}
+end
 
 struct LoxBinary{Top<:LoxBinaryOp,Tex1<:LoxExpr,Tex2<:LoxExpr} <: LoxExpr
     operator::Top
     left::Tex1
     right::Tex2
-    start_offset::Int
-    end_offset::Int
-
-    # To be honest I'd prefer that `start_offset` and `end_offset` were
-    # methods that computed their values on demand, but Julia interfaces bad,
-    # blah blah... Maybe we can solve it another time.
-    function LoxBinary(
-        operator::Top,
-        left::Tex1,
-        right::Tex2,
-    ) where {Top<:LoxBinaryOp,Tex1<:LoxExpr,Tex2<:LoxExpr}
-        return new{Top,Tex1,Tex2}(operator, left, right, left.start_offset, right.end_offset)
-    end
 end
+start_offset(b::LoxBinary) = start_offset(b.left)
+end_offset(b::LoxBinary) = end_offset(b.right)
 
 abstract type LoxUnaryOp end
-struct Bang <: LoxUnaryOp end
-struct MinusUnary <: LoxUnaryOp end
+# NOTE: This requires that all subtypes of LoxUnaryOp have a field `ltoken`
+start_offset(u::LoxUnaryOp) = start_offset(u.ltoken)
+end_offset(u::LoxUnaryOp) = end_offset(u.ltoken)
+
+struct Bang <: LoxUnaryOp
+    ltoken::Lexer.LocatedToken{Lexer.Bang}
+end
+struct MinusUnary <: LoxUnaryOp
+    ltoken::Lexer.LocatedToken{Lexer.Minus}
+end
 struct LoxUnary{Top<:LoxUnaryOp,Tex<:LoxExpr} <: LoxExpr
     operator::Top
     right::Tex
 end
+start_offset(u::LoxUnary) = start_offset(u.operator)
+end_offset(u::LoxUnary) = end_offset(u.right)
 
 struct LoxGrouping{Tex<:LoxExpr} <: LoxExpr
     expression::Tex
+    start_offset::Int
+    end_offset::Int
 end
+start_offset(g::LoxGrouping) = g.start_offset
+end_offset(g::LoxGrouping) = g.end_offset
 
 # Note that assignments are expressions, not statements
 struct LoxAssignment{Tex<:LoxExpr} <: LoxExpr
@@ -115,6 +174,8 @@ struct LoxAssignment{Tex<:LoxExpr} <: LoxExpr
     target_variable::LoxVariable
     value_expression::Tex
 end
+start_offset(a::LoxAssignment) = start_offset(a.target_variable)
+end_offset(a::LoxAssignment) = end_offset(a.value_expression)
 
 ### Pretty-printing parser outputs
 
@@ -167,8 +228,11 @@ end
 function peek_next(s::ParserState)::Lexer.Token
     return s.tokens[s.tokens_read+1].token
 end
+function peek_next_located(s::ParserState)::Lexer.LocatedToken
+    return s.tokens[s.tokens_read+1]
+end
 function get_next_offset(s::ParserState)::Int
-    return s.tokens[s.tokens_read+1].offset
+    return s.tokens[s.tokens_read+1].start_offset
 end
 function consume_next!(s::ParserState)::Nothing
     s.tokens_read += 1
@@ -203,102 +267,86 @@ end
 function left_associative_binary!(
     s::ParserState,
     operand_parser!::Function,
-    operator_mapping::Dict{<:Lexer.Token,<:LoxBinaryOp},
+    operator_mapping::Dict{<:Lexer.Token},
 )::LoxExpr
     left_expr = operand_parser!(s)
-    next_token = peek_next(s)
-    while haskey(operator_mapping, next_token)
+    next_ltoken = peek_next_located(s)
+    while haskey(operator_mapping, next_ltoken.token)
         # consume the operator
         consume_next!(s)
-        operator = operator_mapping[next_token]
+        operator_constructor = operator_mapping[next_ltoken.token]
         right_expr = operand_parser!(s)
-        left_expr = LoxBinary(operator, left_expr, right_expr)
-        next_token = peek_next(s)
+        left_expr = LoxBinary(operator_constructor(next_ltoken), left_expr, right_expr)
+        next_ltoken = peek_next_located(s)
     end
     return left_expr
 end
 
 function equality!(s::ParserState)::LoxExpr
     operator_mapping =
-        Dict(Lexer.EqualEqual() => EqualEqual(), Lexer.BangEqual() => BangEqual())
+        Dict(Lexer.EqualEqual() => EqualEqual, Lexer.BangEqual() => BangEqual)
     return left_associative_binary!(s, comparison!, operator_mapping)
 end
 
 function comparison!(s::ParserState)::LoxExpr
     operator_mapping = Dict(
-        Lexer.Less() => LessThan(),
-        Lexer.LessEqual() => LessThanEqual(),
-        Lexer.Greater() => GreaterThan(),
-        Lexer.GreaterEqual() => GreaterThanEqual(),
+        Lexer.Less() => LessThan,
+        Lexer.LessEqual() => LessThanEqual,
+        Lexer.Greater() => GreaterThan,
+        Lexer.GreaterEqual() => GreaterThanEqual,
     )
     return left_associative_binary!(s, term!, operator_mapping)
 end
 
 function term!(s::ParserState)::LoxExpr
-    operator_mapping = Dict(Lexer.Plus() => Add(), Lexer.Minus() => Subtract())
+    operator_mapping = Dict(Lexer.Plus() => Add, Lexer.Minus() => Subtract)
     return left_associative_binary!(s, factor!, operator_mapping)
 end
 
 function factor!(s::ParserState)::LoxExpr
-    operator_mapping = Dict(Lexer.Star() => Multiply(), Lexer.Slash() => Divide())
+    operator_mapping = Dict(Lexer.Star() => Multiply, Lexer.Slash() => Divide)
     return left_associative_binary!(s, unary!, operator_mapping)
 end
 
 function unary!(s::ParserState)::LoxExpr
     next_token = peek_next(s)
-    if next_token isa Lexer.Bang || next_token isa Lexer.Minus
+    if next_token isa Lexer.Bang
         consume_next!(s)
-        operator = if next_token isa Lexer.Bang
-            Bang()
-        elseif next_token isa Lexer.Minus
-            MinusUnary()
-        else
-            # TODO: refactor to avoid this
-            error("wut")
-        end
         right_expr = unary!(s)
-        return LoxUnary(operator, right_expr)
+        return LoxUnary(Bang(next_token), right_expr)
+    elseif next_token isa Lexer.Minus
+        consume_next!(s)
+        right_expr = unary!(s)
+        return LoxUnary(MinusUnary(next_token), right_expr)
     else
         return primary!(s)
     end
 end
 
 function primary!(s::ParserState)::LoxExpr
-    next_token = peek_next(s)
-    next_offset = get_next_offset(s)
-    if next_token isa Lexer.False
+    next_ltoken = peek_next_located(s)
+    next_token = next_ltoken.token
+    if (next_token isa Lexer.False || next_token isa Lexer.True || next_token isa Lexer.Nil || next_token isa Lexer.LoxNumber || next_token isa Lexer.LoxString)
         consume_next!(s)
-        return LoxLiteral(false, next_offset, next_offset + 5)
-    elseif next_token isa Lexer.True
-        consume_next!(s)
-        return LoxLiteral(true, next_offset, next_offset + 4)
-    elseif next_token isa Lexer.Nil
-        consume_next!(s)
-        return LoxLiteral(nothing, next_offset, next_offset + 3)
-    elseif next_token isa Lexer.LoxNumber
-        consume_next!(s)
-        literal_strlen = length(next_token.value)
-        # automatic conversion to float(!)
-        return LoxLiteral(Base.parse(Float64, next_token.value), next_offset, next_offset + literal_strlen)
-    elseif next_token isa Lexer.LoxString
-        consume_next!(s)
-        literal_strlen = length(next_token.value) + 2 # account for quotes
-        return LoxLiteral(next_token.value, next_offset, next_offset + literal_strlen)
+        return LoxLiteral(next_ltoken)
     elseif next_token isa Lexer.Identifier
         consume_next!(s)
-        return LoxVariable(next_token.lexeme, next_offset)
+        return LoxVariable(next_ltoken)
     elseif next_token isa Lexer.LeftParen
+        leftparen_start_offset = next_ltoken.start_offset
         consume_next!(s)
         expr = expression!(s)
-        if peek_next(s) isa Lexer.RightParen
+        next_ltoken = peek_next_located(s)
+        if next_ltoken.token isa Lexer.RightParen
+            rightparen_end_offset = next_ltoken.end_offset
             consume_next!(s)
-            return LoxGrouping(expr)
+            return LoxGrouping(expr, leftparen_start_offset, rightparen_end_offset)
         else
-            throw(LoxParseError(get_next_offset(s), "Expected ')' after expression"))
+            throw(LoxParseError(next_ltoken.end_offset, "Expected ')' after expression"))
         end
     else
         # parse failure
-        throw(LoxParseError(get_next_offset(s), "Parse error: " * string(next_token)))
+        throw(LoxParseError(next_ltoken.end_offset, "Parse error: " * string(next_token)))
     end
 end
 
@@ -340,13 +388,14 @@ end
 
 function var_declaration!(s::ParserState)::LoxVarDeclaration
     # consume the 'var' token
-    peek_next(s) isa Lexer.Var || error("var_declaration called without var token")
+    next_ltoken = peek_next_located(s)
+    next_ltoken.token isa Lexer.Var || error("var_declaration called without var token")
+    var_start_offset = next_ltoken.start_offset
     consume_next!(s)
     # get identifier
-    next_token = peek_next(s)
-    if next_token isa Lexer.Identifier
-        next_offset = get_next_offset(s)
-        variable = LoxVariable(next_token.lexeme, next_offset)
+    next_ltoken = peek_next_located(s)
+    if next_ltoken.token isa Lexer.Identifier
+        variable = LoxVariable(next_ltoken)
         consume_next!(s)
         # check for initialisation value
         if peek_next(s) isa Lexer.Equal
@@ -354,7 +403,7 @@ function var_declaration!(s::ParserState)::LoxVarDeclaration
             init_expr = expression!(s)
             if peek_next(s) isa Lexer.Semicolon
                 consume_next!(s)
-                return LoxVarDeclaration(variable, init_expr)
+                return LoxVarDeclaration(variable, var_start_offset, init_expr)
             else
                 throw(
                     LoxParseError(
@@ -364,7 +413,7 @@ function var_declaration!(s::ParserState)::LoxVarDeclaration
                 )
             end
         else
-            return LoxVarDeclaration(variable, nothing)
+            return LoxVarDeclaration(variable, var_start_offset, nothing)
         end
     else
         e = LoxParseError(get_next_offset(s), "Expected identifier after 'var'")

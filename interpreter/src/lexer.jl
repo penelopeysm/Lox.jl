@@ -57,10 +57,13 @@ struct Var <: Token end
 struct While <: Token end
 struct Eof <: Token end
 
-# A token with an associated offset in the source string
 struct LocatedToken{T<:Token}
+    # The token itself
     token::T
-    offset::Int
+    # The index of the first character of the token in the source string
+    start_offset::Int
+    # The index of the last character of the token in the source string, PLUS 1
+    end_offset::Int
 end
 
 # Pretty printing, so that REPL output isn't a deluge of types
@@ -78,7 +81,7 @@ end
 function Base.show(io::IO, lt::LocatedToken)
     print(io, "{")
     Base.show(io, lt.token)
-    print(io, "@", lt.offset, "}")
+    print(io, "@", lt.start_offset, ":", lt.end_offset, "}")
 end
 
 # ================================================================
@@ -113,8 +116,8 @@ function is_at_end(s::LexerState)::Bool
     return s.position >= s.source_len
 end
 
-function add_token!(s::LexerState, token::Token, position::Int)
-    push!(s.tokens, LocatedToken(token, position))
+function add_token!(s::LexerState, token::Token, position::Int, lexeme_length::Int)
+    push!(s.tokens, LocatedToken(token, position, position + lexeme_length))
 end
 
 function add_error!(s::LexerState, error::LoxLexError)
@@ -257,48 +260,56 @@ function read_next_token!(s::LexerState)::Nothing
     if isnothing(next_char)
         throw(LoxLexError(s.position, "Unexpected end of input"))
     elseif next_char == '('
-        add_token!(s, LeftParen(), posn)
+        add_token!(s, LeftParen(), posn, 1)
     elseif next_char == ')'
-        add_token!(s, RightParen(), posn)
+        add_token!(s, RightParen(), posn, 1)
     elseif next_char == '{'
-        add_token!(s, LeftBrace(), posn)
+        add_token!(s, LeftBrace(), posn, 1)
     elseif next_char == '}'
-        add_token!(s, RightBrace(), posn)
+        add_token!(s, RightBrace(), posn, 1)
     elseif next_char == ','
-        add_token!(s, Comma(), posn)
+        add_token!(s, Comma(), posn, 1)
     elseif next_char == '.'
-        add_token!(s, Dot(), posn)
+        add_token!(s, Dot(), posn, 1)
     elseif next_char == '-'
-        add_token!(s, Minus(), posn)
+        add_token!(s, Minus(), posn, 1)
     elseif next_char == '+'
-        add_token!(s, Plus(), posn)
+        add_token!(s, Plus(), posn, 1)
     elseif next_char == ';'
-        add_token!(s, Semicolon(), posn)
+        add_token!(s, Semicolon(), posn, 1)
     elseif next_char == '*'
-        add_token!(s, Star(), posn)
+        add_token!(s, Star(), posn, 1)
     elseif next_char == '!'
-        next_char_is_equals = get_char_if_eq!(s, '=')
-        next_token = next_char_is_equals ? BangEqual() : Bang()
-        add_token!(s, next_token, posn)
+        if get_char_if_eq!(s, '=')
+            add_token!(s, BangEqual(), posn, 2)
+        else
+            add_token!(s, Bang(), posn, 1)
+        end
     elseif next_char == '='
-        next_char_is_equals = get_char_if_eq!(s, '=')
-        next_token = next_char_is_equals ? EqualEqual() : Equal()
-        add_token!(s, next_token, posn)
+        if get_char_if_eq!(s, '=')
+            add_token!(s, EqualEqual(), posn, 2)
+        else
+            add_token!(s, Equal(), posn, 1)
+        end
     elseif next_char == '>'
-        next_char_is_equals = get_char_if_eq!(s, '=')
-        next_token = next_char_is_equals ? GreaterEqual() : Greater()
-        add_token!(s, next_token, posn)
+        if get_char_if_eq!(s, '=')
+            add_token!(s, GreaterEqual(), posn, 2)
+        else
+            add_token!(s, Greater(), posn, 1)
+        end
     elseif next_char == '<'
-        next_char_is_equals = get_char_if_eq!(s, '=')
-        next_token = next_char_is_equals ? LessEqual() : Less()
-        add_token!(s, next_token, posn)
+        if get_char_if_eq!(s, '=')
+            add_token!(s, LessEqual(), posn, 2)
+        else
+            add_token!(s, Less(), posn, 1)
+        end
     elseif next_char == '/'
         next_char_is_slash = get_char_if_eq!(s, '/')
         if next_char_is_slash
             # line comment beginning with //
             consume_until!(s, '\n')
         else
-            add_token!(s, Slash(), posn)
+            add_token!(s, Slash(), posn, 1)
         end
     elseif isspace(next_char) # whitespace is a no-op
     elseif next_char == '"'
@@ -308,7 +319,7 @@ function read_next_token!(s::LexerState)::Nothing
         if closing_quote != '"'
             throw(LoxLexError(s.position, "Unterminated string literal"))
         end
-        add_token!(s, LoxString(str), posn)
+        add_token!(s, LoxString(str), posn, length(str) + 2) # +2 for the quotes
     elseif isdigit(next_char)
         # number literal. grab the bit before the decimal point
         num = next_char * consume_while!(s, isdigit)
@@ -323,13 +334,13 @@ function read_next_token!(s::LexerState)::Nothing
             end
             # otherwise don't consume the decimal point.
         end
-        add_token!(s, LoxNumber(num), posn)
+        add_token!(s, LoxNumber(num), posn, length(num))
     elseif isletter(next_char) || next_char == '_'
         # identifier or keyword
         # Note: Julia's isletter accepts Unicode letters too...
         is_valid_identifier_char(c::Char) = isletter(c) || isdigit(c) || c == '_'
         lexeme = next_char * consume_while!(s, is_valid_identifier_char)
-        add_token!(s, identifier(lexeme), posn)
+        add_token!(s, identifier(lexeme), posn, length(lexeme))
     else
         add_error!(s, LoxLexError(s.position, "Unexpected character: '$next_char'."))
     end
@@ -341,7 +352,7 @@ function lex(source::AbstractString)::Tuple{Vector{LocatedToken},Vector{LoxLexEr
     while !is_at_end(s)
         read_next_token!(s)
     end
-    add_token!(s, Eof(), get_position(s) + 1)
+    add_token!(s, Eof(), get_position(s) + 1, 0)
     return s.tokens, s.errors
 end
 

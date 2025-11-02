@@ -25,31 +25,25 @@ end
 struct LoxNil end
 
 abstract type LoxEvalError <: LoxError end
-struct LoxTypeError <: LoxEvalError
-    message::String
-end
-# TODO: Fix offset
-Errors.get_offset(::LoxTypeError) = 1
-Errors.get_message(err::LoxTypeError) = err.message
 
 struct LoxZeroDivisionError <: LoxEvalError
     division_expr::Parser.LoxBinary{Parser.Divide}
 end
-Errors.get_offset(err::LoxZeroDivisionError) = (err.division_expr.start_offset, err.division_expr.end_offset)
+Errors.get_offset(err::LoxZeroDivisionError) = (Parser.start_offset(err.division_expr), Parser.end_offset(err.division_expr))
 Errors.get_message(::LoxZeroDivisionError) = "division by zero"
 
-struct LoxRuntimeError <: LoxEvalError
+struct LoxTypeError{Texpr<:Parser.LoxExpr} <: LoxEvalError
+    expr::Texpr
     message::String
-    offset::Int
 end
-# TODO: Fix end offset
-Errors.get_offset(err::LoxRuntimeError) = (err.offset, err.offset + 1)
-Errors.get_message(err::LoxRuntimeError) = err.message
+Errors.get_offset(err::LoxTypeError) = (Parser.start_offset(err.expr), Parser.end_offset(err.expr))
+Errors.get_message(err::LoxTypeError) = err.message
 
 struct LoxUndefVarError <: LoxEvalError
+    # LoxVariable subtypes LoxExpr, so we have location info in it
     variable::Parser.LoxVariable
 end
-Errors.get_offset(err::LoxUndefVarError) = (err.variable.start_offset, err.variable.end_offset)
+Errors.get_offset(err::LoxUndefVarError) = (Parser.start_offset(err.variable), Parser.end_offset(err.variable))
 Errors.get_message(err::LoxUndefVarError) = "undefined variable: `$(err.variable.identifier)`"
 
 """
@@ -110,7 +104,7 @@ function lox_eval(expr::Parser.LoxBinary{Parser.Add}, env::LoxEnvironment)
     elseif left isa String && right isa String
         return left * right
     else
-        throw(LoxRuntimeError("cannot add $(typeof(left)) and $(typeof(right))", expr.operator_offset))
+        throw(LoxTypeError(expr, "cannot add values of types $(typeof(left)) and $(typeof(right))"))
     end
 end
 
@@ -121,7 +115,7 @@ Evaluate an expression and expect it to return a `Float64`. If the expression do
 """
 function _lox_eval_expect_f64(expr::Parser.LoxExpr, env::LoxEnvironment)
     val = lox_eval(expr, env)
-    val isa Float64 || throw(LoxTypeError("Expected float, got $(typeof(val))"))
+    val isa Float64 || throw(LoxTypeError(expr, "expected float, got $(typeof(val))"))
     return val
 end
 
