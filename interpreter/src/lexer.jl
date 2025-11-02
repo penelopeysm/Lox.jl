@@ -1,13 +1,13 @@
 module Lexer
 
-using ..Errors: Location, LoxError, identify_location
+using ..Errors: Errors, Location, LoxError, identify_location
 
 struct LoxLexError <: LoxError
     location::Location
     message::String
 end
-get_location(err::LoxLexError) = err.location
-get_message(err::LoxLexError) = err.message
+Errors.get_location(err::LoxLexError) = err.location
+Errors.get_message(err::LoxLexError) = err.message
 
 abstract type Token end
 struct LeftParen <: Token end
@@ -62,6 +62,24 @@ struct LocatedToken{T<:Token}
     offset::Int
 end
 
+# Pretty printing, so that REPL output isn't a deluge of types
+function Base.show(io::IO, t::Token)
+    if t isa Identifier
+        print(io, "Identifier{$(t.lexeme)}")
+    elseif t isa LoxString
+        print(io, "LoxString{$(t.value)}")
+    elseif t isa LoxNumber
+        print(io, "LoxNumber{$(t.value)}")
+    else
+        print(io, nameof(typeof(t)))
+    end
+end
+function Base.show(io::IO, lt::LocatedToken)
+    print(io, "{")
+    Base.show(io, lt.token)
+    print(io, "@", lt.offset, "}")
+end
+
 # ================================================================
 # Lexer state and basic functions to manipulate it.
 
@@ -83,7 +101,7 @@ mutable struct LexerState{S<:AbstractString}
 end
 
 
-function increment_position!(s::LexerState, n::Int = 1)
+function increment_position!(s::LexerState, n::Int=1)
     s.position += n
 end
 

@@ -1,6 +1,6 @@
 module Eval
 
-using ..Errors: LoxError, Location
+using ..Errors: Errors, LoxError, Location
 using ..Parser: Parser
 
 struct LoxEnvironment
@@ -29,26 +29,26 @@ struct LoxTypeError <: LoxEvalError
     message::String
 end
 # TODO: Fix location
-get_location(::LoxTypeError) = Location("runtime", 0, 0)
-get_message(err::LoxTypeError) = err.message
+Errors.get_location(::LoxTypeError) = Location("runtime", 0, 0)
+Errors.get_message(err::LoxTypeError) = err.message
 
 struct LoxZeroDivisionError <: LoxEvalError end
 # TODO: Fix location
-get_location(::LoxZeroDivisionError) = Location("runtime", 0, 0)
-get_message(::LoxZeroDivisionError) = "Division by zero"
+Errors.get_location(::LoxZeroDivisionError) = Location("runtime", 0, 0)
+Errors.get_message(::LoxZeroDivisionError) = "Division by zero"
 
 struct LoxRuntimeError <: LoxEvalError
     message::String
 end
 # TODO: Fix location
-get_location(::LoxRuntimeError) = Location("runtime", 0, 0)
-get_message(err::LoxRuntimeError) = err.message
+Errors.get_location(::LoxRuntimeError) = Location("runtime", 0, 0)
+Errors.get_message(err::LoxRuntimeError) = err.message
 
 struct LoxUndefVarError <: LoxEvalError
     identifier::String
 end
-get_location(::LoxUndefVarError) = Location("runtime", 0, 0)
-get_message(err::LoxUndefVarError) = "Undefined variable: `$(err.identifier)`"
+Errors.get_location(::LoxUndefVarError) = Location("runtime", 0, 0)
+Errors.get_message(err::LoxUndefVarError) = "Undefined variable: `$(err.identifier)`"
 
 """
     lox_eval(::LoxExpr, ::LoxEnvironment)
