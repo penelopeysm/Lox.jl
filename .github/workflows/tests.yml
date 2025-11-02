@@ -19,13 +19,11 @@ concurrency:
 jobs:
   test-interpreter:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./interpreter
 
     steps:
       - uses: actions/checkout@v5
       - uses: julia-actions/setup-julia@v2
       - uses: julia-actions/cache@v2
-      - uses: julia-actions/julia-buildpkg@v1
-      - uses: julia-actions/julia-runtest@v1
+      - run: "using Pkg; Pkg.instantiate(); Pkg.test()"
+        shell: julia --project=./interpreter --color=yes {0}
+
