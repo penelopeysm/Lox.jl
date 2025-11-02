@@ -16,58 +16,76 @@ end
 Abstract interface for Lox errors.
 """
 abstract type LoxError <: Exception end
-function get_location(::LoxError)::Location end
+function get_offset(::LoxError)::Int end
 function get_message(::LoxError)::String end
 
 struct LoxStartupError <: LoxError
     message::String
 end
-get_location(::LoxStartupError) = Location("startup", 0, 0)
+get_offset(::LoxStartupError) = 0
 get_message(err::LoxStartupError) = err.message
 
-function show_error(err::LoxError)
+function show_error(err::LoxError, source::AbstractString, start_loc::Location)
+    loc, contents = identify_location(get_offset(err), source, start_loc)
     io = IOBuffer()
     ctx = IOContext(io, :color => true)
-    printstyled(ctx, "Lox Error: ", bold = true, color = :red)
-    println(ctx, get_message(err))
-    print(ctx, "    at: ")
-    loc = get_location(err)
-    printstyled(ctx, "$(loc.file):$(loc.line):$(loc.column)", color = :magenta)
+    printstyled(ctx, "error @ $(loc.file):$(loc.line):$(loc.column)", color=:magenta)
+    println(ctx)
+    print(ctx, "    " * contents * "\n")
+    printstyled(ctx, "    " * " "^(loc.column - 1) * "^ " * get_message(err), color=:blue)
     return String(take!(io))
 end
-report_error(err::LoxError) = println(Base.stderr, show_error(err))
+report_error(err::LoxError, source::AbstractString, start_loc::Location) = println(Base.stderr, show_error(err, source, start_loc))
 
 """
-    identify_location(chars_read::Int, source::AbstractString, start_loc::Location)::Location
+    identify_location(
+        offset::Int,
+        source::AbstractString,
+        start_loc::Location
+    )::Location
 
-In the lexer, we don't maintain the line and column numbers as we read in
-characters; we only count the number of characters read.
+In the lexer, parser, etc., we don't maintain the line and column numbers as we read in
+characters; we only count the number of characters read, which is stored as `offset`.
 
-This function takes `chars_read`, the number of characters read so far, and the
-starting location, and parses the source string to determine the true line and
-column numbers at that point.
+This function takes `offset`, the number of characters read so far, and the starting
+location, and parses the source string to determine the true line and column numbers at that
+point.
+
+It returns two things: a `Location` struct representing the file, line, and column at that offset,
+and also a string corresponding to that line in the source code.
 """
 function identify_location(
-    chars_read::Int,
+    offset::Int,
     source::AbstractString,
     start_loc::Location,
-)::Location
-    # This doesn't change
+)::Tuple{Location,AbstractString}
     file = start_loc.file
 
-    # We need to count how many newlines we've seen
-    source_seen = source[1:chars_read]
-    num_newlines = count('\n', source_seen)
-    line = start_loc.line + num_newlines
+    offset < 1 && error("offset must be >= 1; got $offset")
 
-    # Then count the number of characters since the last newline
-    if num_newlines == 0
-        column = start_loc.column + chars_read
+    # Calculate line and column numbers
+    line_offsets = get_line_beginning_offsets(source)
+    relative_line_number = searchsortedlast(line_offsets, offset)
+    column_number = offset - line_offsets[relative_line_number] + 1
+    line_number = start_loc.line + relative_line_number - 1
+
+    # Get the line
+    line_start = line_offsets[relative_line_number]
+    line_contents = if relative_line_number == length(line_offsets)
+        source[line_start:end]
     else
-        last_line = last(split(source_seen, '\n'))
-        column = length(last_line)
+        source[line_start:line_offsets[relative_line_number+1]-2]
     end
-    return Location(file, line, column)
+
+    return Location(file, line_number, column_number), line_contents
+end
+
+"""
+Return a vector of offsets corresponding to the beginning of each line in `source`.
+"""
+function get_line_beginning_offsets(source::AbstractString)::Vector{Int}
+    source = strip(source)
+    return [1, map(x -> x + 1, findall('\n', source))...]
 end
 
 end # module

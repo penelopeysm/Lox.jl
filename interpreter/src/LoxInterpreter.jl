@@ -98,25 +98,25 @@ source.
 """
 function run(source::AbstractString, start_loc::Location)::Nothing
     try
-        tokens, lex_errors = Lexer.lex(source, start_loc)
+        tokens, lex_errors = Lexer.lex(source)
         @info "Tokens: $(tokens)"
         if !isempty(lex_errors)
             warning = "Encountered $(length(lex_errors)) lexing errors:"
             indent = " "^4
             for err in lex_errors
-                shown = show_error(err)
+                shown = show_error(err, source, start_loc)
                 shown = indent * replace(shown, "\n" => "\n" * indent)
                 warning = warning * "\n" * shown
             end
             @warn warning
         end
-        ast, parse_errors = Parser.parse(tokens, start_loc)
+        ast, parse_errors = Parser.parse(tokens)
         @info "AST: $(Parser.to_sexp(ast))"
         if !isempty(parse_errors)
             warning = "Encountered $(length(parse_errors)) parsing errors:"
             indent = " "^4
             for err in parse_errors
-                shown = show_error(err)
+                shown = show_error(err, source, start_loc)
                 shown = indent * replace(shown, "\n" => "\n" * indent)
                 warning = warning * "\n" * shown
             end
@@ -125,7 +125,7 @@ function run(source::AbstractString, start_loc::Location)::Nothing
         Eval.lox_exec(ast)
     catch e
         if e isa LoxError
-            report_error(e)
+            report_error(e, source, start_loc)
         else
             rethrow(e)
         end

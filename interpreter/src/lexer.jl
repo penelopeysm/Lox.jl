@@ -1,12 +1,12 @@
 module Lexer
 
-using ..Errors: Errors, Location, LoxError, identify_location
+using ..Errors: Errors
 
-struct LoxLexError <: LoxError
-    location::Location
+struct LoxLexError <: Errors.LoxError
+    offset::Int
     message::String
 end
-Errors.get_location(err::LoxLexError) = err.location
+Errors.get_offset(err::LoxLexError) = err.offset
 Errors.get_message(err::LoxLexError) = err.message
 
 abstract type Token end
@@ -247,12 +247,10 @@ Read the next token from `s.source`, starting from the character at index
 `s.position` If the token is successfully read, it is pushed onto `s.tokens`,
 and `s.position` is updated.
 """
-function read_next_token!(s::LexerState, start_loc::Location)::Nothing
+function read_next_token!(s::LexerState)::Nothing
     next_char = get_char!(s)
     if isnothing(next_char)
-        # TODO: move this to dedicated error handling code
-        current_location = identify_location(s.position, s.source, start_loc)
-        throw(LoxLexError(current_location, "Unexpected end of input"))
+        throw(LoxLexError(s.position, "Unexpected end of input"))
     elseif next_char == '('
         add_token!(s, LeftParen())
     elseif next_char == ')'
@@ -303,8 +301,7 @@ function read_next_token!(s::LexerState, start_loc::Location)::Nothing
         str = consume_until!(s, '"')
         closing_quote = get_char!(s)
         if closing_quote != '"'
-            current_location = identify_location(s.position, s.source, start_loc)
-            throw(LoxLexError(current_location, "Unterminated string literal"))
+            throw(LoxLexError(s.position, "Unterminated string literal"))
         end
         add_token!(s, LoxString(str))
     elseif isdigit(next_char)
@@ -330,24 +327,15 @@ function read_next_token!(s::LexerState, start_loc::Location)::Nothing
         lexeme = next_char * consume_while!(s, is_valid_identifier_char)
         add_token!(s, identifier(lexeme))
     else
-        current_location = identify_location(s.position, s.source, start_loc)
-        add_error!(s, LoxLexError(current_location, "Unexpected character: '$next_char'."))
+        add_error!(s, LoxLexError(s.position, "Unexpected character: '$next_char'."))
     end
     return nothing
 end
 
-"""
-    lex(source::String, start_loc::Location)
-
-Lex. `start_loc` refers to the location of the first character in `source`.
-"""
-function lex(
-    source::AbstractString,
-    start_loc::Location,
-)::Tuple{Vector{LocatedToken},Vector{LoxLexError}}
+function lex(source::AbstractString)::Tuple{Vector{LocatedToken},Vector{LoxLexError}}
     s = LexerState(source)
     while !is_at_end(s)
-        read_next_token!(s, start_loc)
+        read_next_token!(s)
     end
     add_token!(s, Eof())
     return s.tokens, s.errors

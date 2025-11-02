@@ -7,18 +7,18 @@ struct LoxEnvironment
     parent_env::Union{LoxEnvironment,Nothing}
     vars::Dict{String,Any}
 end
-function getvalue(env::LoxEnvironment, identifier::String)
-    if haskey(env.vars, identifier)
-        return env.vars[identifier]
+function getvalue(env::LoxEnvironment, var::Parser.LoxVariable)
+    if haskey(env.vars, var.identifier)
+        return env.vars[var.identifier]
     elseif env.parent_env !== nothing
-        return getvalue(env.parent_env, identifier)
+        return getvalue(env.parent_env, var)
     else
-        throw(LoxUndefVarError(identifier))
+        throw(LoxUndefVarError(var))
     end
 end
-function setvalue!(env::LoxEnvironment, identifier::String, value::Any)
+function setvalue!(env::LoxEnvironment, var::Parser.LoxVariable, value::Any)
     # TODO: allow modification of variables in parent environments
-    env.vars[identifier] = value
+    env.vars[var.identifier] = value
     return nothing
 end
 
@@ -28,27 +28,28 @@ abstract type LoxEvalError <: LoxError end
 struct LoxTypeError <: LoxEvalError
     message::String
 end
-# TODO: Fix location
-Errors.get_location(::LoxTypeError) = Location("runtime", 0, 0)
+# TODO: Fix offset
+Errors.get_offset(::LoxTypeError) = 1
 Errors.get_message(err::LoxTypeError) = err.message
 
-struct LoxZeroDivisionError <: LoxEvalError end
-# TODO: Fix location
-Errors.get_location(::LoxZeroDivisionError) = Location("runtime", 0, 0)
-Errors.get_message(::LoxZeroDivisionError) = "Division by zero"
+struct LoxZeroDivisionError <: LoxEvalError
+    offset::Int
+end
+Errors.get_offset(err::LoxZeroDivisionError) = err.offset
+Errors.get_message(::LoxZeroDivisionError) = "division by zero"
 
 struct LoxRuntimeError <: LoxEvalError
     message::String
+    offset::Int
 end
-# TODO: Fix location
-Errors.get_location(::LoxRuntimeError) = Location("runtime", 0, 0)
+Errors.get_offset(err::LoxRuntimeError) = err.offset
 Errors.get_message(err::LoxRuntimeError) = err.message
 
 struct LoxUndefVarError <: LoxEvalError
-    identifier::String
+    variable::Parser.LoxVariable
 end
-Errors.get_location(::LoxUndefVarError) = Location("runtime", 0, 0)
-Errors.get_message(err::LoxUndefVarError) = "Undefined variable: `$(err.identifier)`"
+Errors.get_offset(err::LoxUndefVarError) = err.variable.offset
+Errors.get_message(err::LoxUndefVarError) = "undefined variable: `$(err.variable.identifier)`"
 
 """
     lox_eval(::LoxExpr, ::LoxEnvironment)
@@ -59,13 +60,19 @@ lox_eval(lit::Parser.LoxLiteral{<:Number}, ::LoxEnvironment) = lit.value
 lox_eval(lit::Parser.LoxLiteral{<:Bool}, ::LoxEnvironment) = lit.value
 lox_eval(lit::Parser.LoxLiteral{<:String}, ::LoxEnvironment) = lit.value
 lox_eval(::Parser.LoxLiteral{Nothing}, ::LoxEnvironment) = LoxNil
-lox_eval(var::Parser.LoxVariable, env::LoxEnvironment) = getvalue(env, var.identifier)
+lox_eval(var::Parser.LoxVariable, env::LoxEnvironment) = getvalue(env, var)
 lox_eval(grp::Parser.LoxGrouping, env::LoxEnvironment) = lox_eval(grp.expression, env)
 function lox_eval(expr::Parser.LoxUnary{Parser.Bang}, env::LoxEnvironment)
     return !(lox_truthy(lox_eval(expr.right, env)))
 end
 function lox_eval(expr::Parser.LoxUnary{Parser.MinusUnary}, env::LoxEnvironment)
     return -_lox_eval_expect_f64(expr.right, env)
+end
+
+function lox_eval(expr::Parser.LoxAssignment, env::LoxEnvironment)
+    rvalue = lox_eval(expr.value_expression, env)
+    setvalue!(env, expr.target_variable, rvalue)
+    return rvalue
 end
 
 # Lox: == and != are defined on all types
@@ -90,7 +97,7 @@ function lox_eval(expr::Parser.LoxBinary{Parser.Divide}, env::LoxEnvironment)
     # Have to evaluate them first to handle order of side effects
     left = _lox_eval_expect_f64(expr.left, env)
     right = _lox_eval_expect_f64(expr.right, env)
-    right == 0.0 && throw(LoxZeroDivisionError())
+    right == 0.0 && throw(LoxZeroDivisionError(expr.operator_offset))
     return left / right
 end
 # Lox: + works on both numbers and strings
@@ -102,7 +109,7 @@ function lox_eval(expr::Parser.LoxBinary{Parser.Add}, env::LoxEnvironment)
     elseif left isa String && right isa String
         return left * right
     else
-        throw(LoxRuntimeError("Cannot add $(typeof(left)) and $(typeof(right))"))
+        throw(LoxRuntimeError("cannot add $(typeof(left)) and $(typeof(right))", expr.operator_offset))
     end
 end
 
@@ -133,12 +140,12 @@ lox_truthy(::Any) = true
 Execute a statement or programme in Lox.
 """
 function lox_exec(stmt::Parser.LoxVarDeclaration{Nothing}, env::LoxEnvironment)
-    setvalue!(env, stmt.identifier, LoxNil)
+    setvalue!(env, stmt.variable, LoxNil)
     nothing
 end
 function lox_exec(stmt::Parser.LoxVarDeclaration{<:Parser.LoxExpr}, env::LoxEnvironment)
     initial_value = lox_eval(stmt.initial_expr, env)
-    setvalue!(env, stmt.identifier, initial_value)
+    setvalue!(env, stmt.variable, initial_value)
     nothing
 end
 function lox_exec(stmt::Parser.LoxExprStatement, env::LoxEnvironment)
@@ -160,7 +167,7 @@ function lox_exec(stmt::Parser.LoxBlockStatement, env::LoxEnvironment)
 end
 function lox_exec(
     prg::Parser.LoxProgramme,
-    env::LoxEnvironment = LoxEnvironment(nothing, Dict{String,Any}()),
+    env::LoxEnvironment=LoxEnvironment(nothing, Dict{String,Any}()),
 )
     for stmt in prg.statements
         lox_exec(stmt, env)

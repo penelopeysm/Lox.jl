@@ -1,24 +1,37 @@
 module Parser
 
-# TODO: Every LoxParseError in here should have a proper location
-
-using ..Errors: Errors, LoxError, Location
+using ..Errors: Errors, LoxError
 using ..Lexer: Lexer
 
 export parse, to_sexp
 
-struct LoxParseError <: LoxError
-    location::Location
+struct LoxParseError <: Errors.LoxError
+    offset::Int
     message::String
 end
-Errors.get_location(err::LoxParseError) = err.location
+Errors.get_offset(err::LoxParseError) = err.offset
 Errors.get_message(err::LoxParseError) = err.message
+
+### AST types
 
 abstract type LoxExpr end
 
+# In theory, we _could_ use these type parameters for static type checking
+# purposes...
+struct LoxLiteral{T<:Union{Float64,Bool,String,Nothing}} <: LoxExpr
+    value::T
+    offset::Int
+    LoxLiteral(value::Number, offset) = new{Float64}(Float64(value), offset)
+    LoxLiteral(value::T, offset) where {T} = new{T}(value, offset)
+end
+struct LoxVariable <: LoxExpr
+    identifier::String
+    offset::Int
+end
+
 abstract type LoxDeclaration end
 struct LoxVarDeclaration{Tex<:Union{LoxExpr,Nothing}} <: LoxDeclaration
-    identifier::String
+    variable::LoxVariable
     initial_expr::Tex
 end
 abstract type LoxStatement <: LoxDeclaration end
@@ -62,6 +75,7 @@ struct LoxBinary{Top<:LoxBinaryOp,Tex1<:LoxExpr,Tex2<:LoxExpr} <: LoxExpr
     operator::Top
     left::Tex1
     right::Tex2
+    operator_offset::Int
 end
 
 abstract type LoxUnaryOp end
@@ -76,18 +90,16 @@ struct LoxGrouping{Tex<:LoxExpr} <: LoxExpr
     expression::Tex
 end
 
-# In theory, we _could_ use these type parameters for static type checking
-# purposes...
-struct LoxLiteral{T<:Union{Float64,Bool,String,Nothing}} <: LoxExpr
-    value::T
-    LoxLiteral(value::Number) = new{Float64}(Float64(value))
-    LoxLiteral(value::T) where {T} = new{T}(value)
-end
-struct LoxVariable <: LoxExpr
-    identifier::String
+# Note that assignments are expressions, not statements
+struct LoxAssignment{Tex<:LoxExpr} <: LoxExpr
+    # TODO: Not sure how to broaden this for e.g. field access, I suppose it comes later in
+    # the book
+    target_variable::LoxVariable
+    value_expression::Tex
 end
 
-## Printing
+### Pretty-printing parser outputs
+
 to_sexp(expr::LoxLiteral{Float64}) = string(expr.value)
 to_sexp(expr::LoxLiteral{Bool}) = expr.value ? "true" : "false"
 to_sexp(expr::LoxLiteral{String}) = "\"" * expr.value * "\""
@@ -103,6 +115,8 @@ to_sexp(expr::LoxBinary) =
     " " *
     to_sexp(expr.right) *
     ")"
+to_sexp(expr::LoxAssignment) =
+    "(= " * to_sexp(expr.target_variable) * " " * to_sexp(expr.value_expression) * ")"
 to_sexp_op(op::EqualEqual) = "=="
 to_sexp_op(op::BangEqual) = "!="
 to_sexp_op(op::LessThan) = "<"
@@ -117,23 +131,26 @@ to_sexp_op(op::Bang) = "!"
 to_sexp_op(op::MinusUnary) = "-"
 to_sexp(stmt::LoxPrintStatement) = "(print " * to_sexp(stmt.expression) * ")"
 to_sexp(stmt::LoxStatement) = "(stmt " * to_sexp(stmt.expression) * ")"
-to_sexp(var_decl::LoxVarDeclaration{Nothing}) = "(var " * var_decl.identifier * ")"
+to_sexp(var_decl::LoxVarDeclaration{Nothing}) = "(var " * to_sexp(var_decl.variable) * ")"
 to_sexp(var_decl::LoxVarDeclaration{Tex}) where {Tex} =
-    "(var " * var_decl.identifier * " = " * to_sexp(var_decl.initial_expr) * ")"
+    "(var " * to_sexp(var_decl.variable) * " = " * to_sexp(var_decl.initial_expr) * ")"
 to_sexp(stmt::LoxBlockStatement) =
     "(block " * join(map(to_sexp, stmt.statements), " ") * ")"
 to_sexp(prg::LoxProgramme) = join(map(to_sexp, prg.statements), "\n")
 
+### The parser state
+
 mutable struct ParserState
     tokens_read::Int
     tokens::Vector{Lexer.LocatedToken}
-    # TODO: remove start_loc
-    start_loc::Location
     parse_errors::Vector{LoxParseError}
 end
 
 function peek_next(s::ParserState)::Lexer.Token
     return s.tokens[s.tokens_read+1].token
+end
+function get_next_offset(s::ParserState)::Int
+    return s.tokens[s.tokens_read+1].offset
 end
 function consume_next!(s::ParserState)::Nothing
     s.tokens_read += 1
@@ -144,7 +161,26 @@ function add_error!(s::ParserState, e::LoxParseError)::Nothing
     return nothing
 end
 
-expression!(s::ParserState)::LoxExpr = equality!(s)
+### The actual parsing
+
+expression!(s::ParserState)::LoxExpr = assignment!(s)
+
+function assignment!(s::ParserState)::LoxExpr
+    # need to cache the current location for error reporting below
+    current_offset = get_next_offset(s)
+    expr = equality!(s)
+    if peek_next(s) isa Lexer.Equal
+        # check if `expr` is an l-value
+        if expr isa LoxVariable
+            consume_next!(s)
+            value_expr = assignment!(s)
+            return LoxAssignment(expr, value_expr)
+        else
+            throw(LoxParseError(current_offset, "Invalid assignment target"))
+        end
+    end
+    return expr
+end
 
 function left_associative_binary!(
     s::ParserState,
@@ -153,12 +189,13 @@ function left_associative_binary!(
 )::LoxExpr
     left_expr = operand_parser!(s)
     next_token = peek_next(s)
+    next_offset = get_next_offset(s)
     while haskey(operator_mapping, next_token)
         # consume the operator
         consume_next!(s)
         operator = operator_mapping[next_token]
         right_expr = operand_parser!(s)
-        left_expr = LoxBinary(operator, left_expr, right_expr)
+        left_expr = LoxBinary(operator, left_expr, right_expr, next_offset)
         next_token = peek_next(s)
     end
     return left_expr
@@ -211,21 +248,22 @@ end
 
 function primary!(s::ParserState)::LoxExpr
     next_token = peek_next(s)
+    next_offset = get_next_offset(s)
     if next_token isa Lexer.False
         consume_next!(s)
-        return LoxLiteral(false)
+        return LoxLiteral(false, next_offset)
     elseif next_token isa Lexer.True
         consume_next!(s)
-        return LoxLiteral(true)
+        return LoxLiteral(true, next_offset)
     elseif next_token isa Lexer.Nil
         consume_next!(s)
-        return LoxLiteral(nothing)
+        return LoxLiteral(nothing, next_offset)
     elseif next_token isa Lexer.LoxNumber || next_token isa Lexer.LoxString
         consume_next!(s)
-        return LoxLiteral(next_token.value)
+        return LoxLiteral(next_token.value, next_offset)
     elseif next_token isa Lexer.Identifier
         consume_next!(s)
-        return LoxVariable(next_token.lexeme)
+        return LoxVariable(next_token.lexeme, next_offset)
     elseif next_token isa Lexer.LeftParen
         consume_next!(s)
         expr = expression!(s)
@@ -233,11 +271,11 @@ function primary!(s::ParserState)::LoxExpr
             consume_next!(s)
             return LoxGrouping(expr)
         else
-            throw(LoxParseError(s.start_loc, "Expected ')' after expression"))
+            throw(LoxParseError(get_next_offset(s), "Expected ')' after expression"))
         end
     else
         # parse failure
-        throw(LoxParseError(s.start_loc, "Parse error: " * string(next_token)))
+        throw(LoxParseError(get_next_offset(s), "Parse error: " * string(next_token)))
     end
 end
 
@@ -284,7 +322,8 @@ function var_declaration!(s::ParserState)::LoxVarDeclaration
     # get identifier
     next_token = peek_next(s)
     if next_token isa Lexer.Identifier
-        identifier_name = next_token.lexeme
+        next_offset = get_next_offset(s)
+        variable = LoxVariable(next_token.lexeme, next_offset)
         consume_next!(s)
         # check for initialisation value
         if peek_next(s) isa Lexer.Equal
@@ -292,20 +331,20 @@ function var_declaration!(s::ParserState)::LoxVarDeclaration
             init_expr = expression!(s)
             if peek_next(s) isa Lexer.Semicolon
                 consume_next!(s)
-                return LoxVarDeclaration(identifier_name, init_expr)
+                return LoxVarDeclaration(variable, init_expr)
             else
                 throw(
                     LoxParseError(
-                        s.start_loc,
+                        get_next_offset(s),
                         "Expected ';' after variable initialisation",
                     ),
                 )
             end
         else
-            return LoxVarDeclaration(identifier_name, nothing)
+            return LoxVarDeclaration(variable, nothing)
         end
     else
-        e = LoxParseError(s.start_loc, "Expected identifier after 'var'")
+        e = LoxParseError(get_next_offset(s), "Expected identifier after 'var'")
         add_error!(s, e)
         # TODO: Do we need this?
         throw(e)
@@ -350,7 +389,7 @@ function statement!(s::ParserState)::LoxStatement
             LoxExprStatement(expr)
         end
     else
-        throw(LoxParseError(s.start_loc, "Expected ';' after expression"))
+        throw(LoxParseError(get_next_offset(s), "Expected ';' after expression"))
     end
 end
 
@@ -385,14 +424,13 @@ end
 
 function parse(
     tokens::Vector{Lexer.LocatedToken},
-    start_loc::Location,
 )::Tuple{LoxProgramme,Vector{LoxParseError}}
     parse_errors = LoxParseError[]
-    s = ParserState(0, tokens, start_loc, parse_errors)
+    s = ParserState(0, tokens, parse_errors)
     prog = programme!(s)
     if s.tokens_read < length(s.tokens)
         throw(
-            LoxParseError(start_loc, "Extra tokens: " * string(tokens[s.tokens_read:end])),
+            LoxParseError(get_next_offset(s), "Extra tokens: " * string(tokens[s.tokens_read:end])),
         )
     end
     return prog, parse_errors
