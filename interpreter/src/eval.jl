@@ -17,7 +17,7 @@ function getvalue(env::LoxEnvironment, var::Parser.LoxVariable)
     end
 end
 function setvalue!(env::LoxEnvironment, var::Parser.LoxVariable, value::Any)
-    # TODO: allow modification of variables in parent environments
+    # TODO (stretch): allow modification of variables in parent environments
     env.vars[var.identifier] = value
     return nothing
 end
@@ -54,7 +54,7 @@ Evaluate an expression.
 lox_eval(lit::Parser.LoxLiteral{<:Number}, ::LoxEnvironment) = lit.value
 lox_eval(lit::Parser.LoxLiteral{<:Bool}, ::LoxEnvironment) = lit.value
 lox_eval(lit::Parser.LoxLiteral{<:String}, ::LoxEnvironment) = lit.value
-lox_eval(::Parser.LoxLiteral{Nothing}, ::LoxEnvironment) = LoxNil
+lox_eval(::Parser.LoxLiteral{Nothing}, ::LoxEnvironment) = LoxNil()
 lox_eval(var::Parser.LoxVariable, env::LoxEnvironment) = getvalue(env, var)
 lox_eval(grp::Parser.LoxGrouping, env::LoxEnvironment) = lox_eval(grp.expression, env)
 function lox_eval(expr::Parser.LoxUnary{Parser.Bang}, env::LoxEnvironment)
@@ -114,6 +114,8 @@ end
 Evaluate an expression and expect it to return a `Float64`. If the expression does not, throw a LoxTypeError.
 """
 function _lox_eval_expect_f64(expr::Parser.LoxExpr, env::LoxEnvironment)
+    # TODO: This leads to very uninformative error messages. Fix this by checking 
+    # the type at a higher level instead.
     val = lox_eval(expr, env)
     val isa Float64 || throw(LoxTypeError(expr, "expected float, got $(typeof(val))"))
     return val
@@ -150,6 +152,17 @@ end
 function lox_exec(stmt::Parser.LoxPrintStatement, env::LoxEnvironment)
     value = lox_eval(stmt.expression, env)
     println(value)
+    nothing
+end
+function lox_exec(stmt::Parser.LoxIfStatement, env::LoxEnvironment)
+    condition = lox_eval(stmt.condition, env)
+    if lox_truthy(condition)
+        lox_exec(stmt.then_branch, env)
+    else
+        if stmt.else_branch !== nothing
+            lox_exec(stmt.else_branch, env)
+        end
+    end
     nothing
 end
 function lox_exec(stmt::Parser.LoxBlockStatement, env::LoxEnvironment)

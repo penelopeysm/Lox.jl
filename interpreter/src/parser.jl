@@ -9,7 +9,8 @@ struct LoxParseError <: Errors.LoxError
     offset::Int
     message::String
 end
-# TODO: fix end offset
+# Since parse errors are only associated with a single location, we can safely
+# make the 'end offset' be just the character after the start offset
 Errors.get_offset(err::LoxParseError) = (err.offset, err.offset + 1)
 Errors.get_message(err::LoxParseError) = err.message
 
@@ -68,21 +69,35 @@ end_offset(decl::LoxVarDeclaration{Tex}) where {Tex<:LoxExpr} = end_offset(decl.
 abstract type LoxStatement <: LoxDeclaration end
 struct LoxExprStatement{Tex<:LoxExpr} <: LoxStatement
     expression::Tex
-    # TODO: end offset must include semicolon
+    end_offset::Int # this refers to end offset of the semicolon
 end
 start_offset(stmt::LoxExprStatement) = start_offset(stmt.expression)
-end_offset(stmt::LoxExprStatement) = end_offset(stmt.expression)
+end_offset(stmt::LoxExprStatement) = stmt.end_offset
 
 struct LoxPrintStatement{Tex<:LoxExpr} <: LoxStatement
     expression::Tex
-    # TODO: start offset must include print
-    # TODO: end offset must include semicolon
+    start_offset::Int
+    end_offset::Int
 end
+start_offset(stmt::LoxPrintStatement) = stmt.start_offset
+end_offset(stmt::LoxPrintStatement) = stmt.end_offset
+
+struct LoxIfStatement{Tcond<:LoxExpr,Tthen<:LoxStatement,Telse<:Union{LoxStatement,Nothing}} <: LoxStatement
+    condition::Tcond
+    then_branch::Tthen
+    else_branch::Telse
+    if_start_offset::Int
+end
+start_offset(stmt::LoxIfStatement) = stmt.if_start_offset
+end_offset(stmt::LoxIfStatement) = stmt.else_branch === nothing ? end_offset(stmt.then_branch) : end_offset(stmt.else_branch)
 
 struct LoxBlockStatement <: LoxStatement
     statements::Vector{LoxDeclaration}
-    # TODO: start and end offsets with braces
+    start_offset::Int
+    end_offset::Int
 end
+start_offset(stmt::LoxBlockStatement) = stmt.start_offset
+end_offset(stmt::LoxBlockStatement) = stmt.end_offset
 
 struct LoxProgramme
     statements::Vector{LoxDeclaration}
@@ -215,6 +230,8 @@ to_sexp(var_decl::LoxVarDeclaration{Tex}) where {Tex} =
     "(decl " * to_sexp(var_decl.variable) * " = " * to_sexp(var_decl.initial_expr) * ")"
 to_sexp(stmt::LoxBlockStatement) =
     "(block " * join(map(to_sexp, stmt.statements), " ") * ")"
+to_sexp(stmt::LoxIfStatement) = "(if " * to_sexp(stmt.condition) * " " * to_sexp(stmt.then_branch) *
+    (stmt.else_branch === nothing ? "" : " " * to_sexp(stmt.else_branch)) * ")"
 to_sexp(prg::LoxProgramme) = join(map(to_sexp, prg.statements), "\n")
 
 ### The parser state
@@ -225,10 +242,10 @@ mutable struct ParserState
     parse_errors::Vector{LoxParseError}
 end
 
-function peek_next(s::ParserState)::Lexer.Token
+function peek_next_unlocated(s::ParserState)::Lexer.Token
     return s.tokens[s.tokens_read+1].token
 end
-function peek_next_located(s::ParserState)::Lexer.LocatedToken
+function peek_next(s::ParserState)::Lexer.LocatedToken
     return s.tokens[s.tokens_read+1]
 end
 function get_next_offset(s::ParserState)::Int
@@ -251,7 +268,7 @@ function assignment!(s::ParserState)::LoxExpr
     # need to cache the current location for error reporting below
     current_offset = get_next_offset(s)
     expr = equality!(s)
-    if peek_next(s) isa Lexer.Equal
+    if peek_next_unlocated(s) isa Lexer.Equal
         # check if `expr` is an l-value
         if expr isa LoxVariable
             consume_next!(s)
@@ -270,14 +287,14 @@ function left_associative_binary!(
     operator_mapping::Dict{<:Lexer.Token},
 )::LoxExpr
     left_expr = operand_parser!(s)
-    next_ltoken = peek_next_located(s)
+    next_ltoken = peek_next(s)
     while haskey(operator_mapping, next_ltoken.token)
         # consume the operator
         consume_next!(s)
         operator_constructor = operator_mapping[next_ltoken.token]
         right_expr = operand_parser!(s)
         left_expr = LoxBinary(operator_constructor(next_ltoken), left_expr, right_expr)
-        next_ltoken = peek_next_located(s)
+        next_ltoken = peek_next(s)
     end
     return left_expr
 end
@@ -309,22 +326,22 @@ function factor!(s::ParserState)::LoxExpr
 end
 
 function unary!(s::ParserState)::LoxExpr
-    next_token = peek_next(s)
-    if next_token isa Lexer.Bang
+    next_ltoken = peek_next(s)
+    if next_ltoken.token isa Lexer.Bang
         consume_next!(s)
         right_expr = unary!(s)
-        return LoxUnary(Bang(next_token), right_expr)
-    elseif next_token isa Lexer.Minus
+        return LoxUnary(Bang(next_ltoken), right_expr)
+    elseif next_ltoken.token isa Lexer.Minus
         consume_next!(s)
         right_expr = unary!(s)
-        return LoxUnary(MinusUnary(next_token), right_expr)
+        return LoxUnary(MinusUnary(next_ltoken), right_expr)
     else
         return primary!(s)
     end
 end
 
 function primary!(s::ParserState)::LoxExpr
-    next_ltoken = peek_next_located(s)
+    next_ltoken = peek_next(s)
     next_token = next_ltoken.token
     if (next_token isa Lexer.False || next_token isa Lexer.True || next_token isa Lexer.Nil || next_token isa Lexer.LoxNumber || next_token isa Lexer.LoxString)
         consume_next!(s)
@@ -336,7 +353,7 @@ function primary!(s::ParserState)::LoxExpr
         leftparen_start_offset = next_ltoken.start_offset
         consume_next!(s)
         expr = expression!(s)
-        next_ltoken = peek_next_located(s)
+        next_ltoken = peek_next(s)
         if next_ltoken.token isa Lexer.RightParen
             rightparen_end_offset = next_ltoken.end_offset
             consume_next!(s)
@@ -361,16 +378,16 @@ EOF token.
 """
 function synchronise!(s::ParserState)
     while true
-        if peek_next(s) isa Lexer.Semicolon
+        if peek_next_unlocated(s) isa Lexer.Semicolon
             consume_next!(s)
             return
         end
-        if peek_next(s) isa Lexer.Eof
+        if peek_next_unlocated(s) isa Lexer.Eof
             return
         end
         # Then look ahead
         consume_next!(s)
-        next_token = peek_next(s)
+        next_token = peek_next_unlocated(s)
         if (
             next_token isa Lexer.Class ||
             next_token isa Lexer.Fun ||
@@ -388,20 +405,20 @@ end
 
 function var_declaration!(s::ParserState)::LoxVarDeclaration
     # consume the 'var' token
-    next_ltoken = peek_next_located(s)
+    next_ltoken = peek_next(s)
     next_ltoken.token isa Lexer.Var || error("var_declaration called without var token")
     var_start_offset = next_ltoken.start_offset
     consume_next!(s)
     # get identifier
-    next_ltoken = peek_next_located(s)
+    next_ltoken = peek_next(s)
     if next_ltoken.token isa Lexer.Identifier
         variable = LoxVariable(next_ltoken)
         consume_next!(s)
         # check for initialisation value
-        if peek_next(s) isa Lexer.Equal
+        if peek_next_unlocated(s) isa Lexer.Equal
             consume_next!(s)
             init_expr = expression!(s)
-            if peek_next(s) isa Lexer.Semicolon
+            if peek_next_unlocated(s) isa Lexer.Semicolon
                 consume_next!(s)
                 return LoxVarDeclaration(variable, var_start_offset, init_expr)
             else
@@ -416,49 +433,101 @@ function var_declaration!(s::ParserState)::LoxVarDeclaration
             return LoxVarDeclaration(variable, var_start_offset, nothing)
         end
     else
-        e = LoxParseError(get_next_offset(s), "Expected identifier after 'var'")
-        add_error!(s, e)
-        # TODO: Do we need this?
-        throw(e)
+        throw(LoxParseError(get_next_offset(s), "Expected identifier after 'var'"))
     end
 end
 
 function declaration!(s::ParserState)::LoxDeclaration
-    return if peek_next(s) isa Lexer.Var
+    return if peek_next_unlocated(s) isa Lexer.Var
         var_declaration!(s)
     else
         statement!(s)
     end
 end
 
-function statement!(s::ParserState)::LoxStatement
-    # Handle block statements
-    if peek_next(s) isa Lexer.LeftBrace
+function block_statement!(s::ParserState)::LoxBlockStatement
+    next_ltoken = peek_next(s)
+    next_ltoken.token isa Lexer.LeftBrace || error("unreachable: block_statement! called without left brace")
+    leftbrace_start_offset = next_ltoken.start_offset
+    consume_next!(s)
+    decls = LoxDeclaration[]
+    while !(peek_next_unlocated(s) isa Lexer.RightBrace)
+        decl = declaration!(s)
+        push!(decls, decl)
+    end
+    rightbrace_ltoken = peek_next(s)
+    if rightbrace_ltoken.token isa Lexer.RightBrace
         consume_next!(s)
-        decls = LoxDeclaration[]
-        while !(peek_next(s) isa Lexer.RightBrace)
-            decl = declaration!(s)
-            push!(decls, decl)
+        rightbrace_end_offset = rightbrace_ltoken.end_offset
+        return LoxBlockStatement(decls, leftbrace_start_offset, rightbrace_end_offset)
+    else
+        # if we reach EOF before the right brace, `declaration!` above will throw a generic
+        # error. TODO: we could make it a nicer error, e.g. showing where the block started
+        error("unreachable: expected right brace after block statements")
+    end
+end
+
+function if_statement!(s::ParserState)::LoxIfStatement
+    next_ltoken = peek_next(s)
+    next_ltoken.token isa Lexer.If || error("unreachable: if_statement! called without if token")
+    if_start_offset = next_ltoken.start_offset
+    consume_next!(s) # 'if'
+    # check for open paren
+    paren = peek_next(s)
+    if !(paren.token isa Lexer.LeftParen)
+        throw(LoxParseError(get_next_offset(s), "expected '(' after 'if'"))
+    end
+    consume_next!(s) # '('
+    # condition
+    condition_expr = expression!(s)
+    # check for close paren
+    paren = peek_next(s)
+    if !(paren.token isa Lexer.RightParen)
+        throw(LoxParseError(get_next_offset(s), "expected ')' after if condition"))
+    end
+    consume_next!(s) # ')'
+    # then branch
+    then_stmt = statement!(s)
+    # check for else branch (which is optional)
+    else_stmt = begin
+        next_token = peek_next_unlocated(s)
+        if next_token isa Lexer.Else
+            consume_next!(s) # 'else'
+            statement!(s)
+        else
+            nothing
         end
-        if peek_next(s) isa Lexer.RightBrace
-            consume_next!(s)
-        end
-        return LoxBlockStatement(decls)
+    end
+    return LoxIfStatement(condition_expr, then_stmt, else_stmt, if_start_offset)
+end
+
+function statement!(s::ParserState)::LoxStatement
+    next_ltoken = peek_next(s)
+    # Handle block statements
+    if next_ltoken.token isa Lexer.LeftBrace
+        return block_statement!(s)
+    end
+    # Handle if statements
+    if next_ltoken.token isa Lexer.If
+        return if_statement!(s)
     end
     # Everything else: print statement, or a simple expression statement
-    if peek_next(s) isa Lexer.Print
-        consume_next!(s)
-        is_print_statement = true
-    else
-        is_print_statement = false
+    is_print_statement, print_start_offset = begin
+        if next_ltoken.token isa Lexer.Print
+            consume_next!(s)
+            true, next_ltoken.start_offset
+        else
+            false, nothing
+        end
     end
     expr = expression!(s)
-    if peek_next(s) isa Lexer.Semicolon
+    next_ltoken = peek_next(s)
+    if next_ltoken.token isa Lexer.Semicolon
         consume_next!(s)
         return if is_print_statement
-            LoxPrintStatement(expr)
+            LoxPrintStatement(expr, print_start_offset, next_ltoken.end_offset)
         else
-            LoxExprStatement(expr)
+            LoxExprStatement(expr, next_ltoken.end_offset)
         end
     else
         throw(LoxParseError(get_next_offset(s), "Expected ';' after expression"))
@@ -468,7 +537,7 @@ end
 function programme!(s::ParserState)::LoxProgramme
     decls = LoxDeclaration[]
     while true
-        if peek_next(s) isa Lexer.Eof
+        if peek_next_unlocated(s) isa Lexer.Eof
             consume_next!(s)
             break
         else
@@ -478,7 +547,7 @@ function programme!(s::ParserState)::LoxProgramme
             catch e
                 if e isa LoxParseError
                     synchronise!(s)
-                    if peek_next(s) isa Lexer.Eof
+                    if peek_next_unlocated(s) isa Lexer.Eof
                         # Attempted to synchronise, but reached EOF, i.e. there
                         # wasn't a meaningful place to resume parsing from
                         add_error!(s, e)
