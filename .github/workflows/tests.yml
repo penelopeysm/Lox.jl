@@ -7,9 +7,9 @@ on:
   pull_request:
 
 # needed to allow julia-actions/cache to delete old caches that it has created
-permissions:
-  actions: write
-  contents: read
+# permissions:
+#   actions: write
+#   contents: read
 
 # Cancel existing tests on the same PR if a new commit is added to a pull request
 concurrency:
@@ -23,7 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: julia-actions/setup-julia@v2
-      - uses: julia-actions/cache@v2
+      # No deps so don't really need to cache
+      # - uses: julia-actions/cache@v2
       - run: "using Pkg; Pkg.instantiate(); Pkg.test()"
         shell: julia --project=./interpreter --color=yes {0}
 
