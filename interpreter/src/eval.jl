@@ -71,6 +71,22 @@ function lox_eval(expr::Parser.LoxAssignment, env::LoxEnvironment)
 end
 
 # Lox: == and != are defined on all types
+function lox_eval(expr::Parser.LoxBinary{Parser.Or}, env::LoxEnvironment)
+    left_val = lox_eval(expr.left, env)
+    if lox_truthy(left_val)
+        return left_val
+    else
+        return lox_eval(expr.right, env)
+    end
+end
+function lox_eval(expr::Parser.LoxBinary{Parser.And}, env::LoxEnvironment)
+    left_val = lox_eval(expr.left, env)
+    if !lox_truthy(left_val)
+        return left_val
+    else
+        return lox_eval(expr.right, env)
+    end
+end
 lox_eval(expr::Parser.LoxBinary{Parser.EqualEqual}, env::LoxEnvironment) =
     lox_eval(expr.left, env) == lox_eval(expr.right, env)
 lox_eval(expr::Parser.LoxBinary{Parser.BangEqual}, env::LoxEnvironment) =
@@ -151,7 +167,12 @@ function lox_exec(stmt::Parser.LoxExprStatement, env::LoxEnvironment)
 end
 function lox_exec(stmt::Parser.LoxPrintStatement, env::LoxEnvironment)
     value = lox_eval(stmt.expression, env)
-    println(value)
+    if value isa LoxNil
+        # Can't figure out how to override show or print for this...
+        println("nil")
+    else
+        println(value)
+    end
     nothing
 end
 function lox_exec(stmt::Parser.LoxIfStatement, env::LoxEnvironment)

@@ -148,6 +148,14 @@ struct Subtract <: LoxBinaryAddSubOp
     ltoken::Lexer.LocatedToken{Lexer.Minus}
 end
 
+abstract type LoxLogicalOp <: LoxBinaryOp end
+struct And <: LoxLogicalOp
+    ltoken::Lexer.LocatedToken{Lexer.And}
+end
+struct Or <: LoxLogicalOp
+    ltoken::Lexer.LocatedToken{Lexer.Or}
+end
+
 struct LoxBinary{Top<:LoxBinaryOp,Tex1<:LoxExpr,Tex2<:LoxExpr} <: LoxExpr
     operator::Top
     left::Tex1
@@ -223,6 +231,8 @@ to_sexp_op(op::Multiply) = "*"
 to_sexp_op(op::Divide) = "/"
 to_sexp_op(op::Bang) = "!"
 to_sexp_op(op::MinusUnary) = "-"
+to_sexp_op(op::And) = "and"
+to_sexp_op(op::Or) = "or"
 to_sexp(stmt::LoxPrintStatement) = "(print " * to_sexp(stmt.expression) * ")"
 to_sexp(stmt::LoxStatement) = "(stmt " * to_sexp(stmt.expression) * ")"
 to_sexp(var_decl::LoxVarDeclaration{Nothing}) = "(decl " * to_sexp(var_decl.variable) * ")"
@@ -267,7 +277,7 @@ expression!(s::ParserState)::LoxExpr = assignment!(s)
 function assignment!(s::ParserState)::LoxExpr
     # need to cache the current location for error reporting below
     current_offset = get_next_offset(s)
-    expr = equality!(s)
+    expr = or!(s)
     if peek_next_unlocated(s) isa Lexer.Equal
         # check if `expr` is an l-value
         if expr isa LoxVariable
@@ -297,6 +307,16 @@ function left_associative_binary!(
         next_ltoken = peek_next(s)
     end
     return left_expr
+end
+
+function or!(s::ParserState)::LoxExpr
+    operator_mapping = Dict(Lexer.Or() => Or)
+    return left_associative_binary!(s, and!, operator_mapping)
+end
+
+function and!(s::ParserState)::LoxExpr
+    operator_mapping = Dict(Lexer.And() => And)
+    return left_associative_binary!(s, equality!, operator_mapping)
 end
 
 function equality!(s::ParserState)::LoxExpr

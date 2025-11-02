@@ -100,6 +100,16 @@ end
             String[],
             0
         )
+        ftest(
+            "../../loxprogs/logicals.lox",
+            [join(["true", "false", "false", "false",
+                    "true", "true", "true", "false",
+                    "false", "true", "true",
+                    "1.0", "nil", "1.0"
+                ], "\n")],
+            String[],
+            0
+        )
     end
 
     @testset "errors and reporting" begin
