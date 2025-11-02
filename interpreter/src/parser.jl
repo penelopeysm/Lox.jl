@@ -81,7 +81,19 @@ struct LoxBinary{Top<:LoxBinaryOp,Tex1<:LoxExpr,Tex2<:LoxExpr} <: LoxExpr
     operator::Top
     left::Tex1
     right::Tex2
-    operator_offset::Int
+    start_offset::Int
+    end_offset::Int
+
+    # To be honest I'd prefer that `start_offset` and `end_offset` were
+    # methods that computed their values on demand, but Julia interfaces bad,
+    # blah blah... Maybe we can solve it another time.
+    function LoxBinary(
+        operator::Top,
+        left::Tex1,
+        right::Tex2,
+    ) where {Top<:LoxBinaryOp,Tex1<:LoxExpr,Tex2<:LoxExpr}
+        return new{Top,Tex1,Tex2}(operator, left, right, left.start_offset, right.end_offset)
+    end
 end
 
 abstract type LoxUnaryOp end
@@ -195,13 +207,12 @@ function left_associative_binary!(
 )::LoxExpr
     left_expr = operand_parser!(s)
     next_token = peek_next(s)
-    next_offset = get_next_offset(s)
     while haskey(operator_mapping, next_token)
         # consume the operator
         consume_next!(s)
         operator = operator_mapping[next_token]
         right_expr = operand_parser!(s)
-        left_expr = LoxBinary(operator, left_expr, right_expr, next_offset)
+        left_expr = LoxBinary(operator, left_expr, right_expr)
         next_token = peek_next(s)
     end
     return left_expr

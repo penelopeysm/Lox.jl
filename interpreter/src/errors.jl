@@ -28,7 +28,6 @@ get_message(err::LoxStartupError) = err.message
 function show_error(err::LoxError, source::AbstractString, start_loc::Location)
     start_offset, end_offset = get_offset(err)
     loc, contents = identify_location(start_offset, source, start_loc)
-    @show start_offset, loc, get_line_beginning_offsets(source)
     io = IOBuffer()
     ctx = IOContext(io, :color => true)
     printstyled(ctx, "error @ $(loc.file):$(loc.line):$(loc.column)", color=:magenta)

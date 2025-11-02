@@ -33,10 +33,9 @@ Errors.get_offset(::LoxTypeError) = 1
 Errors.get_message(err::LoxTypeError) = err.message
 
 struct LoxZeroDivisionError <: LoxEvalError
-    offset::Int
+    division_expr::Parser.LoxBinary{Parser.Divide}
 end
-# TODO: Fix end offset
-Errors.get_offset(err::LoxZeroDivisionError) = (err.offset, err.offset + 1)
+Errors.get_offset(err::LoxZeroDivisionError) = (err.division_expr.start_offset, err.division_expr.end_offset)
 Errors.get_message(::LoxZeroDivisionError) = "division by zero"
 
 struct LoxRuntimeError <: LoxEvalError
@@ -99,7 +98,7 @@ function lox_eval(expr::Parser.LoxBinary{Parser.Divide}, env::LoxEnvironment)
     # Have to evaluate them first to handle order of side effects
     left = _lox_eval_expect_f64(expr.left, env)
     right = _lox_eval_expect_f64(expr.right, env)
-    right == 0.0 && throw(LoxZeroDivisionError(expr.operator_offset))
+    iszero(right) && throw(LoxZeroDivisionError(expr))
     return left / right
 end
 # Lox: + works on both numbers and strings
