@@ -19,18 +19,13 @@ abstract type LoxError <: Exception end
 function get_offset(::LoxError)::Tuple{Int,Int} end
 function get_message(::LoxError)::String end
 
-struct LoxStartupError <: LoxError
-    message::String
-end
-get_offset(::LoxStartupError) = (1, 2)
-get_message(err::LoxStartupError) = err.message
-
 function show_error(err::LoxError, source::AbstractString, start_loc::Location)
     start_offset, end_offset = get_offset(err)
     loc, contents = identify_location(start_offset, source, start_loc)
     io = IOBuffer()
     ctx = IOContext(io, :color => true)
-    printstyled(ctx, "error @ $(loc.file):$(loc.line):$(loc.column)", color=:magenta)
+    printstyled(ctx, "error"; color=:red, bold=true)
+    printstyled(ctx, " @ $(loc.file):$(loc.line):$(loc.column)"; color=:red)
     println(ctx)
     print(ctx, "    " * contents * "\n")
     ncarets = end_offset - start_offset

@@ -8,7 +8,7 @@ include("lexer.jl")
 include("parser.jl")
 include("eval.jl")
 
-using .Errors: LoxError, LoxStartupError, Location, show_error, report_error
+using .Errors: LoxError, Location, show_error, report_error
 
 const EXIT_SUCCESS = 0
 const EXIT_FILE_NOT_FOUND = 64
@@ -25,12 +25,13 @@ function run_file(filename::AbstractString, silent::Bool)::Nothing
         location = Location(filename, 1, 0)
         maybe_error = run(contents, location, silent)
         if maybe_error !== nothing
-            report_error(maybe_error)
+            report_error(maybe_error, contents, location)
             exit(EXIT_RUNTIME_ERROR)
         end
     catch e
         if e isa SystemError
-            report_error(LoxStartupError("Could not read file '$filename'"))
+            printstyled(Base.stderr, "error: "; color=:red, bold=true)
+            println(Base.stderr, "file `$filename` was not found")
             exit(EXIT_FILE_NOT_FOUND)
         end
         # Error in the compiler itself
@@ -100,7 +101,7 @@ Execute a Lox source code snippet. Returns `nothing` if successful, or a
 `starting_location` is the line number corresponding to the first line of the
 source.
 """
-function run(source::AbstractString, start_loc::Location, silent::Bool)::Nothing
+function run(source::AbstractString, start_loc::Location, silent::Bool)::Union{Nothing,LoxError}
     try
         tokens, lex_errors = Lexer.lex(source)
         silent || @info "Tokens: $(tokens)"
@@ -129,7 +130,7 @@ function run(source::AbstractString, start_loc::Location, silent::Bool)::Nothing
         Eval.lox_exec(ast)
     catch e
         if e isa LoxError
-            report_error(e, source, start_loc)
+            return e
         else
             rethrow(e)
         end
