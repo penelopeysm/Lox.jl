@@ -119,6 +119,12 @@ end
             String[],
             0
         )
+        ftest(
+            "../../loxprogs/for.lox",
+            ["1.0\n2.0\n3.0\n4.0\n5.0"],
+            String[],
+            0
+        )
     end
 
     @testset "errors and reporting" begin
