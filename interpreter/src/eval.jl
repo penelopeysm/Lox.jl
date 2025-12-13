@@ -58,6 +58,7 @@ end
 Base.show(io::IO, f::LoxFunction) = print(io, "<Lox function $(f.declaration.name.identifier)>")
 
 struct MethodTable
+    func_name::String
     methods::Dict{Int,LoxFunction} # Mapping from arity to the LoxFunction
 end
 Base.show(io::IO, mt::MethodTable) = print(io, "<Lox method table with arities: $(collect(keys(mt.methods)))>")
@@ -67,13 +68,14 @@ function setvalue!(
     value::LoxFunction,
     ::Bool,
 )
+    fname = var.identifier
     arity = length(value.declaration.parameters)
     if haskey(env.vars, var.identifier)
         mt = env.vars[var.identifier]
         if mt isa MethodTable
             # Add to existing method table
             if haskey(mt.methods, arity)
-                printstyled("Lox: redefining $arity-arity method for $(var.identifier)\n"; color=:yellow)
+                printstyled("Lox: redefining $arity-arity method for $(fname)\n"; color=:yellow)
             end
             mt.methods[arity] = value
             return env
@@ -81,12 +83,12 @@ function setvalue!(
             throw(
                 LoxTypeError(
                     var,
-                    "$(var.identifier) already defined as a non-function value",
+                    "$(fname) already defined as a non-function value",
                 ),
             )
         end
     else
-        env.vars[var.identifier] = MethodTable(Dict(arity => value))
+        env.vars[fname] = MethodTable(fname, Dict(arity => value))
         return env
     end
     # TODO: We don't check parent scopes for existing method tables. This means
@@ -123,7 +125,10 @@ Errors.get_message(err::LoxUndefVarError) =
 """
     lox_eval(::LoxExpr, ::LoxEnvironment)
 
-Evaluate an expression.
+Evaluate an expression. Note that these return Julia types rather than Lox types (so when we
+throw mismatched type errors, for example, the error message refers to Julia types...!) This
+could definitely be improved. The only exception to this is LoxNil, which is the
+representation of Lox's `nil` value.
 """
 lox_eval(lit::Parser.LoxLiteral{<:Number}, ::LoxEnvironment) = lit.value
 lox_eval(lit::Parser.LoxLiteral{<:Bool}, ::LoxEnvironment) = lit.value
@@ -205,7 +210,34 @@ end
 function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
     callee = lox_eval(expr.callee, env)
     nargs = length(expr.arguments)
-    # TODO
+    if callee isa MethodTable
+        if haskey(callee.methods, nargs)
+            func = callee.methods[nargs]
+            arg_values = map(Base.Fix2(lox_eval, env), expr.arguments)
+            # Set up a new environment for the function call
+            new_env = LoxEnvironment(env, Dict{String,Any}())
+            for (param, arg_value) in zip(func.declaration.parameters, arg_values)
+                setvalue!(new_env, param, arg_value, true)
+            end
+            # Then execute the function
+            lox_exec(func.declaration.body, new_env)
+            # TODO: handle return values.
+        else
+            throw(
+                LoxTypeError(
+                    expr.callee,
+                    "no $(nargs)-argument method for `$(callee.func_name)`",
+                ),
+            )
+        end
+    else
+        throw(
+            LoxTypeError(
+                expr.callee,
+                "attempted to call a non-function value of type $(typeof(callee))",
+            ),
+        )
+    end
 end
 
 
