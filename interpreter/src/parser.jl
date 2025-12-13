@@ -446,7 +446,6 @@ function var_declaration!(s::ParserState)::LoxVarDeclaration
     # get identifier
     next_ltoken = consume_or_error!(s, Lexer.Identifier, "Expected identifier after 'var'")
     variable = LoxVariable(next_ltoken)
-    consume_next!(s)
     # check for initialisation value
     if peek_next_unlocated(s) isa Lexer.Equal
         consume_next!(s) # equals sign
