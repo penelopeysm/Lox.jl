@@ -164,6 +164,14 @@ end
             String[],
             0,
         )
+        ftest(
+            "../../loxprogs/closures.lox",
+            [
+                "1.0\n2.0\n3.0"
+            ],
+            String[],
+            0,
+        )
     end
 end
 

@@ -51,9 +51,10 @@ end
 
 struct LoxNil end
 
-# simple wrapper for now, but could be extended later
 struct LoxFunction
     declaration::Parser.LoxFunDeclaration
+    # Capture the environment where the function was defined
+    env::LoxEnvironment
 end
 Base.show(io::IO, f::LoxFunction) = print(io, "<Lox function $(f.declaration.name.identifier)>")
 
@@ -227,8 +228,9 @@ function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
         if haskey(callee.methods, nargs)
             func = callee.methods[nargs]
             arg_values = map(Base.Fix2(lox_eval, env), expr.arguments)
-            # Set up a new environment for the function call
-            new_env = LoxEnvironment(env, Dict{String,Any}())
+            # Regenerate the function's original environment (but create an inner
+            # one for the function call itself)
+            new_env = LoxEnvironment(func.env, Dict{String,Any}())
             for (param, arg_value) in zip(func.declaration.parameters, arg_values)
                 setvalue!(new_env, param, arg_value, true)
             end
@@ -307,7 +309,7 @@ function lox_exec(stmt::Parser.LoxVarDeclaration{<:Parser.LoxExpr}, env::LoxEnvi
     return env
 end
 function lox_exec(decl::Parser.LoxFunDeclaration, env::LoxEnvironment)
-    setvalue!(env, decl.name, LoxFunction(decl), true)
+    setvalue!(env, decl.name, LoxFunction(decl, env), true)
     return env
 end
 function lox_exec(stmt::Parser.LoxExprStatement, env::LoxEnvironment)
