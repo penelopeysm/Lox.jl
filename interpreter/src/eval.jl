@@ -16,7 +16,12 @@ function getvalue(env::LoxEnvironment, var::Parser.LoxVariable)
         throw(LoxUndefVarError(var))
     end
 end
-function setvalue!(env::LoxEnvironment, var::Parser.LoxVariable, value::Any, is_new_declaration::Bool)
+function setvalue!(
+    env::LoxEnvironment,
+    var::Parser.LoxVariable,
+    value::Any,
+    is_new_declaration::Bool,
+)
     if haskey(env.vars, var.identifier) || is_new_declaration
         # If it's a new variable, we always want to set it in the current scope.
         env.vars[var.identifier] = value
@@ -37,22 +42,26 @@ abstract type LoxEvalError <: LoxError end
 struct LoxZeroDivisionError <: LoxEvalError
     division_expr::Parser.LoxBinary{Parser.Divide}
 end
-Errors.get_offset(err::LoxZeroDivisionError) = (Parser.start_offset(err.division_expr), Parser.end_offset(err.division_expr))
+Errors.get_offset(err::LoxZeroDivisionError) =
+    (Parser.start_offset(err.division_expr), Parser.end_offset(err.division_expr))
 Errors.get_message(::LoxZeroDivisionError) = "division by zero"
 
 struct LoxTypeError{Texpr<:Parser.LoxExpr} <: LoxEvalError
     expr::Texpr
     message::String
 end
-Errors.get_offset(err::LoxTypeError) = (Parser.start_offset(err.expr), Parser.end_offset(err.expr))
+Errors.get_offset(err::LoxTypeError) =
+    (Parser.start_offset(err.expr), Parser.end_offset(err.expr))
 Errors.get_message(err::LoxTypeError) = err.message
 
 struct LoxUndefVarError <: LoxEvalError
     # LoxVariable subtypes LoxExpr, so we have location info in it
     variable::Parser.LoxVariable
 end
-Errors.get_offset(err::LoxUndefVarError) = (Parser.start_offset(err.variable), Parser.end_offset(err.variable))
-Errors.get_message(err::LoxUndefVarError) = "undefined variable: `$(err.variable.identifier)`"
+Errors.get_offset(err::LoxUndefVarError) =
+    (Parser.start_offset(err.variable), Parser.end_offset(err.variable))
+Errors.get_message(err::LoxUndefVarError) =
+    "undefined variable: `$(err.variable.identifier)`"
 
 """
     lox_eval(::LoxExpr, ::LoxEnvironment)
@@ -128,7 +137,12 @@ function lox_eval(expr::Parser.LoxBinary{Parser.Add}, env::LoxEnvironment)
     elseif left isa String && right isa String
         return left * right
     else
-        throw(LoxTypeError(expr, "cannot add values of types $(typeof(left)) and $(typeof(right))"))
+        throw(
+            LoxTypeError(
+                expr,
+                "cannot add values of types $(typeof(left)) and $(typeof(right))",
+            ),
+        )
     end
 end
 
@@ -211,7 +225,7 @@ end
 
 function lox_exec(
     prg::Parser.LoxProgramme,
-    env::LoxEnvironment=LoxEnvironment(nothing, Dict{String,Any}()),
+    env::LoxEnvironment = LoxEnvironment(nothing, Dict{String,Any}()),
 )
     for stmt in prg.statements
         lox_exec(stmt, env)

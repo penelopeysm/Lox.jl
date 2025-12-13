@@ -24,19 +24,19 @@ struct LoxLiteral{T<:Union{Float64,Bool,String,Nothing}} <: LoxExpr
     value::T
     start_offset::Int
     end_offset::Int
-    LoxLiteral(lstr::Lexer.LocatedToken{Lexer.LoxString}) = new{String}(
-        lstr.token.value,
-        lstr.start_offset,
-        lstr.end_offset,
-    )
+    LoxLiteral(lstr::Lexer.LocatedToken{Lexer.LoxString}) =
+        new{String}(lstr.token.value, lstr.start_offset, lstr.end_offset)
     LoxLiteral(lnum::Lexer.LocatedToken{Lexer.LoxNumber}) = new{Float64}(
         Base.parse(Float64, lnum.token.value),
         lnum.start_offset,
         lnum.end_offset,
     )
-    LoxLiteral(ltrue::Lexer.LocatedToken{Lexer.True}) = new{Bool}(true, ltrue.start_offset, ltrue.end_offset)
-    LoxLiteral(lfalse::Lexer.LocatedToken{Lexer.False}) = new{Bool}(false, lfalse.start_offset, lfalse.end_offset)
-    LoxLiteral(lnil::Lexer.LocatedToken{Lexer.Nil}) = new{Nothing}(nothing, lnil.start_offset, lnil.end_offset)
+    LoxLiteral(ltrue::Lexer.LocatedToken{Lexer.True}) =
+        new{Bool}(true, ltrue.start_offset, ltrue.end_offset)
+    LoxLiteral(lfalse::Lexer.LocatedToken{Lexer.False}) =
+        new{Bool}(false, lfalse.start_offset, lfalse.end_offset)
+    LoxLiteral(lnil::Lexer.LocatedToken{Lexer.Nil}) =
+        new{Nothing}(nothing, lnil.start_offset, lnil.end_offset)
 end
 start_offset(l::LoxLiteral) = l.start_offset
 end_offset(l::LoxLiteral) = l.end_offset
@@ -45,11 +45,8 @@ struct LoxVariable <: LoxExpr
     identifier::String
     start_offset::Int
     end_offset::Int
-    LoxVariable(liden::Lexer.LocatedToken{Lexer.Identifier}) = new(
-        liden.token.lexeme,
-        liden.start_offset,
-        liden.end_offset
-    )
+    LoxVariable(liden::Lexer.LocatedToken{Lexer.Identifier}) =
+        new(liden.token.lexeme, liden.start_offset, liden.end_offset)
 end
 start_offset(v::LoxVariable) = v.start_offset
 end_offset(v::LoxVariable) = v.end_offset
@@ -64,7 +61,8 @@ struct LoxVarDeclaration{Tex<:Union{LoxExpr,Nothing}} <: LoxDeclaration
 end
 start_offset(decl::LoxVarDeclaration) = decl.var_start_offset
 end_offset(decl::LoxVarDeclaration{Nothing}) = end_offset(decl.variable)
-end_offset(decl::LoxVarDeclaration{Tex}) where {Tex<:LoxExpr} = end_offset(decl.initial_expr)
+end_offset(decl::LoxVarDeclaration{Tex}) where {Tex<:LoxExpr} =
+    end_offset(decl.initial_expr)
 
 abstract type LoxStatement <: LoxDeclaration end
 struct LoxExprStatement{Tex<:LoxExpr} <: LoxStatement
@@ -82,14 +80,20 @@ end
 start_offset(stmt::LoxPrintStatement) = stmt.start_offset
 end_offset(stmt::LoxPrintStatement) = stmt.end_offset
 
-struct LoxIfStatement{Tcond<:LoxExpr,Tthen<:LoxStatement,Telse<:Union{LoxStatement,Nothing}} <: LoxStatement
+struct LoxIfStatement{
+    Tcond<:LoxExpr,
+    Tthen<:LoxStatement,
+    Telse<:Union{LoxStatement,Nothing},
+} <: LoxStatement
     condition::Tcond
     then_branch::Tthen
     else_branch::Telse
     if_start_offset::Int
 end
 start_offset(stmt::LoxIfStatement) = stmt.if_start_offset
-end_offset(stmt::LoxIfStatement) = stmt.else_branch === nothing ? end_offset(stmt.then_branch) : end_offset(stmt.else_branch)
+end_offset(stmt::LoxIfStatement) =
+    stmt.else_branch === nothing ? end_offset(stmt.then_branch) :
+    end_offset(stmt.else_branch)
 
 struct LoxWhileStatement{Tcond<:LoxExpr,Tbody<:LoxStatement} <: LoxStatement
     condition::Tcond
@@ -248,8 +252,13 @@ to_sexp(var_decl::LoxVarDeclaration{Tex}) where {Tex} =
     "(decl " * to_sexp(var_decl.variable) * " = " * to_sexp(var_decl.initial_expr) * ")"
 to_sexp(stmt::LoxBlockStatement) =
     "(block " * join(map(to_sexp, stmt.statements), " ") * ")"
-to_sexp(stmt::LoxIfStatement) = "(if " * to_sexp(stmt.condition) * " " * to_sexp(stmt.then_branch) *
-                                (stmt.else_branch === nothing ? "" : " " * to_sexp(stmt.else_branch)) * ")"
+to_sexp(stmt::LoxIfStatement) =
+    "(if " *
+    to_sexp(stmt.condition) *
+    " " *
+    to_sexp(stmt.then_branch) *
+    (stmt.else_branch === nothing ? "" : " " * to_sexp(stmt.else_branch)) *
+    ")"
 to_sexp(stmt::LoxWhileStatement) =
     "(while " * to_sexp(stmt.condition) * " " * to_sexp(stmt.body) * ")"
 to_sexp(prg::LoxProgramme) = join(map(to_sexp, prg.statements), "\n")
@@ -279,7 +288,11 @@ function add_error!(s::ParserState, e::LoxParseError)::Nothing
     push!(s.parse_errors, e)
     return nothing
 end
-function consume_or_error!(s::ParserState, expected_token::Type{<:Lexer.Token}, errmsg::String)::Lexer.LocatedToken
+function consume_or_error!(
+    s::ParserState,
+    expected_token::Type{<:Lexer.Token},
+    errmsg::String,
+)::Lexer.LocatedToken
     next_ltoken = peek_next(s)
     if next_ltoken.token isa expected_token
         consume_next!(s)
@@ -382,7 +395,13 @@ end
 function primary!(s::ParserState)::LoxExpr
     next_ltoken = peek_next(s)
     next_token = next_ltoken.token
-    if (next_token isa Lexer.False || next_token isa Lexer.True || next_token isa Lexer.Nil || next_token isa Lexer.LoxNumber || next_token isa Lexer.LoxString)
+    if (
+        next_token isa Lexer.False ||
+        next_token isa Lexer.True ||
+        next_token isa Lexer.Nil ||
+        next_token isa Lexer.LoxNumber ||
+        next_token isa Lexer.LoxString
+    )
         consume_next!(s)
         return LoxLiteral(next_ltoken)
     elseif next_token isa Lexer.Identifier
@@ -392,7 +411,8 @@ function primary!(s::ParserState)::LoxExpr
         leftparen_start_offset = next_ltoken.start_offset
         consume_next!(s)
         expr = expression!(s)
-        rparen_ltoken = consume_or_error!(s, Lexer.RightParen, "Expected ')' after expression")
+        rparen_ltoken =
+            consume_or_error!(s, Lexer.RightParen, "Expected ')' after expression")
         rightparen_end_offset = rparen_ltoken.end_offset
         return LoxGrouping(expr, leftparen_start_offset, rightparen_end_offset)
     else
@@ -467,7 +487,8 @@ end
 
 function block_statement!(s::ParserState)::LoxBlockStatement
     next_ltoken = peek_next(s)
-    next_ltoken.token isa Lexer.LeftBrace || error("unreachable: block_statement! called without left brace")
+    next_ltoken.token isa Lexer.LeftBrace ||
+        error("unreachable: block_statement! called without left brace")
     leftbrace_start_offset = next_ltoken.start_offset
     consume_next!(s)
     decls = LoxDeclaration[]
@@ -475,13 +496,15 @@ function block_statement!(s::ParserState)::LoxBlockStatement
         decl = declaration!(s)
         push!(decls, decl)
     end
-    rightbrace_ltoken = consume_or_error!(s, Lexer.RightBrace, "expected '}' after block statements")
+    rightbrace_ltoken =
+        consume_or_error!(s, Lexer.RightBrace, "expected '}' after block statements")
     rightbrace_end_offset = rightbrace_ltoken.end_offset
     return LoxBlockStatement(decls, leftbrace_start_offset, rightbrace_end_offset)
 end
 
 function if_statement!(s::ParserState)::LoxIfStatement
-    next_ltoken = consume_or_error!(s, Lexer.If, "unreachable: if_statement! called without if token")
+    next_ltoken =
+        consume_or_error!(s, Lexer.If, "unreachable: if_statement! called without if token")
     if_start_offset = next_ltoken.start_offset
     # check for open paren
     consume_or_error!(s, Lexer.LeftParen, "expected '(' after 'if'")
@@ -505,7 +528,11 @@ function if_statement!(s::ParserState)::LoxIfStatement
 end
 
 function while_statement!(s::ParserState)::LoxWhileStatement
-    while_ltoken = consume_or_error!(s, Lexer.While, "unreachable: while_statement! called without while token")
+    while_ltoken = consume_or_error!(
+        s,
+        Lexer.While,
+        "unreachable: while_statement! called without while token",
+    )
     while_start_offset = while_ltoken.start_offset
     # check for open paren
     consume_or_error!(s, Lexer.LeftParen, "expected '(' after 'for'")
@@ -535,7 +562,11 @@ function for_statement!(s::ParserState)::LoxBlockStatement
     #
     # (note that the braces outside are necessary since the initialiser may declare
     # variables that should not leak into the surrounding scope)
-    for_ltoken = consume_or_error!(s, Lexer.For, "unreachable: for_statement! called without for token")
+    for_ltoken = consume_or_error!(
+        s,
+        Lexer.For,
+        "unreachable: for_statement! called without for token",
+    )
     for_start_offset = for_ltoken.start_offset
     consume_or_error!(s, Lexer.LeftParen, "expected '(' after 'for'")
     # initialiser: it can either be empty, a var declaration, or an expression.
@@ -549,7 +580,11 @@ function for_statement!(s::ParserState)::LoxBlockStatement
             var_declaration!(s)
         else
             expr = expression!(s)
-            semicolon_ltoken = consume_or_error!(s, Lexer.Semicolon, "expected ';' after for loop initialiser")
+            semicolon_ltoken = consume_or_error!(
+                s,
+                Lexer.Semicolon,
+                "expected ';' after for loop initialiser",
+            )
             LoxExprStatement(expr, semicolon_ltoken.end_offset)
         end
     end
@@ -577,7 +612,9 @@ function for_statement!(s::ParserState)::LoxBlockStatement
     # then the body
     body_stmt = statement!(s)
     # now we emit the desugared while loop
-    while_stmt = LoxWhileStatement(condition, begin
+    while_stmt = LoxWhileStatement(
+        condition,
+        begin
             if increment === nothing
                 body_stmt
             else
@@ -585,17 +622,23 @@ function for_statement!(s::ParserState)::LoxBlockStatement
                 # the increment, because even though the desugared code has the increment
                 # after the body, in the original source code the increment comes before the
                 # body.
-                LoxBlockStatement([body_stmt, LoxExprStatement(increment, end_offset(increment))],
+                LoxBlockStatement(
+                    [body_stmt, LoxExprStatement(increment, end_offset(increment))],
                     start_offset(increment),
-                    end_offset(body_stmt))
+                    end_offset(body_stmt),
+                )
             end
-        end, for_start_offset)
+        end,
+        for_start_offset,
+    )
     if initialiser === nothing
         return while_stmt
     else
-        return LoxBlockStatement([initialiser, while_stmt],
+        return LoxBlockStatement(
+            [initialiser, while_stmt],
             start_offset(initialiser),
-            end_offset(while_stmt))
+            end_offset(while_stmt),
+        )
     end
 end
 
@@ -673,7 +716,10 @@ function parse(
     prog = programme!(s)
     if s.tokens_read < length(s.tokens)
         throw(
-            LoxParseError(get_next_offset(s), "Extra tokens: " * string(tokens[s.tokens_read:end])),
+            LoxParseError(
+                get_next_offset(s),
+                "Extra tokens: " * string(tokens[s.tokens_read:end]),
+            ),
         )
     end
     return prog, parse_errors

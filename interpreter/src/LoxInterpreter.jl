@@ -21,7 +21,7 @@ Execute a Lox source file.
 
 Returns an exit code indicating success or failure.
 """
-function run_file(filename::AbstractString, silent::Bool=false)::Int
+function run_file(filename::AbstractString, silent::Bool = false)::Int
     try
         contents = strip(read(filename, String))
         location = Location(filename, 1, 0)
@@ -34,7 +34,7 @@ function run_file(filename::AbstractString, silent::Bool=false)::Int
         end
     catch e
         if e isa SystemError
-            printstyled(Base.stderr, "error: "; color=:red, bold=true)
+            printstyled(Base.stderr, "error: "; color = :red, bold = true)
             println(Base.stderr, "file `$filename` was not found")
             return EXIT_FILE_NOT_FOUND
         end
@@ -53,7 +53,7 @@ Julia REPL, or through ReplMaker.jl.
 
 TODO: Handle Ctrl-C (try/catch InterruptException doesn't seem to work)
 """
-function run_prompt(silent::Bool=false)::Nothing
+function run_prompt(silent::Bool = false)::Nothing
     println("Running prompt. Use two newlines to finish a snippet.")
     line_number = 1
     while true
@@ -105,7 +105,11 @@ Execute a Lox source code snippet. Returns `nothing` if successful, or a
 `starting_location` is the line number corresponding to the first line of the
 source.
 """
-function run(source::AbstractString, start_loc::Location, silent::Bool)::Union{Nothing,LoxError}
+function run(
+    source::AbstractString,
+    start_loc::Location,
+    silent::Bool,
+)::Union{Nothing,LoxError}
     try
         tokens, lex_errors = Lexer.lex(source)
         silent || @info "Tokens: $(tokens)"

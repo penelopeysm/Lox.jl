@@ -24,15 +24,20 @@ function show_error(err::LoxError, source::AbstractString, start_loc::Location)
     loc, contents = identify_location(start_offset, source, start_loc)
     io = IOBuffer()
     ctx = IOContext(io, :color => true)
-    printstyled(ctx, "error"; color=:red, bold=true)
-    printstyled(ctx, " @ $(loc.file):$(loc.line):$(loc.column)"; color=:red)
+    printstyled(ctx, "error"; color = :red, bold = true)
+    printstyled(ctx, " @ $(loc.file):$(loc.line):$(loc.column)"; color = :red)
     println(ctx)
     print(ctx, "    " * contents * "\n")
     ncarets = end_offset - start_offset
-    printstyled(ctx, "    " * " "^(loc.column - 1) * ("^"^ncarets) * " " * get_message(err), color=:blue)
+    printstyled(
+        ctx,
+        "    " * " "^(loc.column - 1) * ("^"^ncarets) * " " * get_message(err),
+        color = :blue,
+    )
     return String(take!(io))
 end
-report_error(err::LoxError, source::AbstractString, start_loc::Location) = println(Base.stderr, show_error(err, source, start_loc))
+report_error(err::LoxError, source::AbstractString, start_loc::Location) =
+    println(Base.stderr, show_error(err, source, start_loc))
 
 """
     identify_location(

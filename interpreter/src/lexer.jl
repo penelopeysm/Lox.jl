@@ -108,7 +108,7 @@ function get_position(s::LexerState)::Int
     return s.position
 end
 
-function increment_position!(s::LexerState, n::Int=1)
+function increment_position!(s::LexerState, n::Int = 1)
     s.position += n
 end
 

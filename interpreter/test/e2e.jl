@@ -4,7 +4,12 @@ using Test
 using LoxInterpreter: LoxInterpreter
 using LoxInterpreter.Errors: Errors
 
-function test_file(filename::String, expected_stdout::Vector{String}, expected_stderr::Vector{String}, expected_exit_code::Int)
+function test_file(
+    filename::String,
+    expected_stdout::Vector{String},
+    expected_stderr::Vector{String},
+    expected_exit_code::Int,
+)
     # This opens a Julia session, so it's quite slow.
     @testset "$(filename)" begin
         # When running tests, the cwd is the test folder.
@@ -30,7 +35,12 @@ function test_file(filename::String, expected_stdout::Vector{String}, expected_s
     end
 end
 
-function test_file_fast(filename::String, expected_stdout::Vector{String}, expected_stderr::Vector{String}, ::Int)
+function test_file_fast(
+    filename::String,
+    expected_stdout::Vector{String},
+    expected_stderr::Vector{String},
+    ::Int,
+)
     # This runs the interpreter in-process, so it's much faster. But we can't check exit
     # codes.
     @testset "$(filename)" begin
@@ -64,21 +74,11 @@ end
     # ftest = test_file
 
     @testset "basic" begin
-        ftest(
-            "../../loxprogs/helloworld.lox",
-            ["Hello, world!"],
-            String[],
-            0
-        )
+        ftest("../../loxprogs/helloworld.lox", ["Hello, world!"], String[], 0)
     end
 
     @testset "lexical scoping" begin
-        ftest(
-            "../../loxprogs/scopes.lox",
-            ["1.0\n2.0\n1.0\n3.0"],
-            String[],
-            0
-        )
+        ftest("../../loxprogs/scopes.lox", ["1.0\n2.0\n1.0\n3.0"], String[], 0)
     end
 
     @testset "conditionals" begin
@@ -86,65 +86,64 @@ end
             "../../loxprogs/ifthenelse.lox",
             ["one plus two is less than four"],
             String[],
-            0
+            0,
         )
-        ftest(
-            "../../loxprogs/truthy.lox",
-            ["one is truthy", "nil is falsy"],
-            String[],
-            0
-        )
-        ftest(
-            "../../loxprogs/danglingelse.lox",
-            ["world"],
-            String[],
-            0
-        )
+        ftest("../../loxprogs/truthy.lox", ["one is truthy", "nil is falsy"], String[], 0)
+        ftest("../../loxprogs/danglingelse.lox", ["world"], String[], 0)
         ftest(
             "../../loxprogs/logicals.lox",
-            [join(["true", "false", "false", "false",
-                    "true", "true", "true", "false",
-                    "false", "true", "true",
-                    "1.0", "nil", "1.0"
-                ], "\n")],
+            [
+                join(
+                    [
+                        "true",
+                        "false",
+                        "false",
+                        "false",
+                        "true",
+                        "true",
+                        "true",
+                        "false",
+                        "false",
+                        "true",
+                        "true",
+                        "1.0",
+                        "nil",
+                        "1.0",
+                    ],
+                    "\n",
+                ),
+            ],
             String[],
-            0
+            0,
         )
     end
 
     @testset "loops" begin
-        ftest(
-            "../../loxprogs/while.lox",
-            ["1.0\n2.0\n3.0\n4.0\n5.0"],
-            String[],
-            0
-        )
-        ftest(
-            "../../loxprogs/for.lox",
-            ["1.0\n2.0\n3.0\n4.0\n5.0"],
-            String[],
-            0
-        )
+        ftest("../../loxprogs/while.lox", ["1.0\n2.0\n3.0\n4.0\n5.0"], String[], 0)
+        ftest("../../loxprogs/for.lox", ["1.0\n2.0\n3.0\n4.0\n5.0"], String[], 0)
     end
 
     @testset "errors and reporting" begin
         ftest(
             "../../loxprogs/badadd.lox",
             String[],
-            ["    print (x + 3);", "          ^^^^^ cannot add values of types String and Float64"],
-            LoxInterpreter.EXIT_RUNTIME_ERROR
+            [
+                "    print (x + 3);",
+                "          ^^^^^ cannot add values of types String and Float64",
+            ],
+            LoxInterpreter.EXIT_RUNTIME_ERROR,
         )
         ftest(
             "../../loxprogs/undefvar.lox",
             String[],
             ["    print undefined;", "          ^^^^^^^^^ undefined variable: `undefined`"],
-            LoxInterpreter.EXIT_RUNTIME_ERROR
+            LoxInterpreter.EXIT_RUNTIME_ERROR,
         )
         ftest(
             "../../loxprogs/dividezero.lox",
             String[],
             ["    var z = hello / world;", "           ^^^^^^^^^^^^^ division by zero"],
-            LoxInterpreter.EXIT_RUNTIME_ERROR
+            LoxInterpreter.EXIT_RUNTIME_ERROR,
         )
     end
 end
