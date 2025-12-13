@@ -37,12 +37,12 @@ using LoxInterpreter; run_file("path/to/lox_file.lox")
 
 The interpreter contains several differences from the book (mainly because I wanted to experiment with extra features).
 
-- The magic variable `__scope__` prints the current scope when evaluated. Note that this returns a Julia dictionary, so you can't actually do anything with it in Lox (except print it).
-- Methods with different arities can be defined for the same function (i.e. function overloading based on number of arguments). (But variadic functions are not supported.)
+- The magic variable `__scope__` prints the current scope when evaluated. Note that this returns a Julia dictionary, so you can't actually do anything with it in Lox (except print it). This is mainly for debugging purposes, but if Lox had its own dictionaries, then this would play a similar role to Julia's `Base.@locals`.
+- Methods with different arities can be defined for the same function (i.e. function overloading based on number of arguments). This is similar to C++ multimethods, but only for arity (not types, since there is no compile-time type checking).
 - There is quite a fair bit of nice pretty-printing for errors!
 
 ```
-$ jp interpreter.jl ../loxprogs/dividezero.lox
+$ cd interpreter; julia --project=. interpreter.jl ../loxprogs/dividezero.lox
 error @ ../loxprogs/dividezero.lox:5:9
     var z = hello / world;
             ^^^^^^^^^^^^^ division by zero
