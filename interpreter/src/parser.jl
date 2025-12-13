@@ -47,6 +47,8 @@ struct LoxVariable <: LoxExpr
     end_offset::Int
     LoxVariable(liden::Lexer.LocatedToken{Lexer.Identifier}) =
         new(liden.token.lexeme, liden.start_offset, liden.end_offset)
+    LoxVariable(lv::LoxVariable, new_name::String) =
+        new(new_name, lv.start_offset, lv.end_offset)
 end
 start_offset(v::LoxVariable) = v.start_offset
 end_offset(v::LoxVariable) = v.end_offset
@@ -110,6 +112,15 @@ struct LoxBlockStatement <: LoxStatement
 end
 start_offset(stmt::LoxBlockStatement) = stmt.start_offset
 end_offset(stmt::LoxBlockStatement) = stmt.end_offset
+
+struct LoxFunDeclaration <: LoxDeclaration
+    name::LoxVariable
+    parameters::Vector{LoxVariable}
+    fun_start_offset::Int
+    body::LoxBlockStatement
+end
+start_offset(decl::LoxFunDeclaration) = decl.fun_start_offset
+end_offset(decl::LoxFunDeclaration) = end_offset(decl.body)
 
 struct LoxProgramme
     statements::Vector{LoxDeclaration}
@@ -270,6 +281,16 @@ to_sexp(stmt::LoxIfStatement) =
     " " *
     to_sexp(stmt.then_branch) *
     (stmt.else_branch === nothing ? "" : " " * to_sexp(stmt.else_branch)) *
+    ")"
+to_sexp(fun_decl::LoxFunDeclaration) =
+    "(fun " *
+    to_sexp(fun_decl.name) *
+    " (" *
+    (length(fun_decl.parameters) == 0
+     ? ""
+     : join(map(to_sexp, fun_decl.parameters), " ")) *
+    ") " *
+    to_sexp(fun_decl.body) *
     ")"
 to_sexp(stmt::LoxWhileStatement) =
     "(while " * to_sexp(stmt.condition) * " " * to_sexp(stmt.body) * ")"
@@ -442,16 +463,9 @@ function _call_args!(s::ParserState)::Tuple{Vector{LoxExpr},Int}
         if peek_next_unlocated(s) isa Lexer.Comma
             consume_next!(s) # comma
             continue
-        elseif peek_next_unlocated(s) isa Lexer.RightParen
-            rparen = consume_next!(s)
-            return args, rparen.end_offset
         else
-            throw(
-                LoxParseError(
-                    get_next_offset(s),
-                    "expected ',' or ')' after function call argument",
-                ),
-            )
+            rparen = consume_or_error!(s, Lexer.RightParen, "expected ')' after function call arguments")
+            return args, rparen.end_offset
         end
     end
 end
@@ -523,10 +537,8 @@ end
 
 function var_declaration!(s::ParserState)::LoxVarDeclaration
     # consume the 'var' token
-    next_ltoken = peek_next(s)
-    next_ltoken.token isa Lexer.Var || error("var_declaration called without var token")
-    var_start_offset = next_ltoken.start_offset
-    consume_next!(s)
+    var_ltoken = consume_or_error!(s, Lexer.Var, "unreachable: var_declaration! called without var token")
+    var_start_offset = var_ltoken.start_offset
     # get identifier
     next_ltoken = consume_or_error!(s, Lexer.Identifier, "Expected identifier after 'var'")
     variable = LoxVariable(next_ltoken)
@@ -541,9 +553,42 @@ function var_declaration!(s::ParserState)::LoxVarDeclaration
     end
 end
 
+function fun_declaration!(s::ParserState)::LoxFunDeclaration
+    # consume the 'var' token
+    fun_ltoken = consume_or_error!(s, Lexer.Fun, "unreachable: fun_declaration! called without fun token")
+    fun_start_offset = fun_ltoken.start_offset
+    # get function name
+    next_ltoken = consume_or_error!(s, Lexer.Identifier, "Expected function name after 'fun'")
+    function_name = LoxVariable(next_ltoken)
+    # parameters
+    consume_or_error!(s, Lexer.LeftParen, "expected '(' after function name")
+    params = LoxVariable[]
+    # handle empty parameter list
+    if peek_next_unlocated(s) isa Lexer.RightParen
+        consume_next!(s) # right paren
+    else
+        while true
+            param_ltoken = consume_or_error!(s, Lexer.Identifier, "expected parameter name")
+            push!(params, LoxVariable(param_ltoken))
+            if peek_next_unlocated(s) isa Lexer.Comma
+                consume_next!(s) # comma
+            else
+                consume_or_error!(s, Lexer.RightParen, "expected ')' after function parameters")
+                break
+            end
+        end
+    end
+    # function body
+    block = block_statement!(s)
+    return LoxFunDeclaration(function_name, params, fun_start_offset, block)
+end
+
 function declaration!(s::ParserState)::LoxDeclaration
-    return if peek_next_unlocated(s) isa Lexer.Var
+    next_token = peek_next_unlocated(s)
+    return if next_token isa Lexer.Var
         var_declaration!(s)
+    elseif next_token isa Lexer.Fun
+        fun_declaration!(s)
     else
         statement!(s)
     end

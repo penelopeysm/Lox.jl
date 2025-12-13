@@ -7,8 +7,11 @@ struct LoxEnvironment
     parent_env::Union{LoxEnvironment,Nothing}
     vars::Dict{String,Any}
 end
+LoxEnvironment() = LoxEnvironment(nothing, Dict{String,Any}())
 function getvalue(env::LoxEnvironment, var::Parser.LoxVariable)
-    if haskey(env.vars, var.identifier)
+    if var.identifier == "__scope__"
+        return _merge_scopes(env)
+    elseif haskey(env.vars, var.identifier)
         return env.vars[var.identifier]
     elseif env.parent_env !== nothing
         return getvalue(env.parent_env, var)
@@ -27,15 +30,69 @@ function setvalue!(
         env.vars[var.identifier] = value
     elseif env.parent_env !== nothing && !is_new_declaration
         # We can only modify parent scopes if it's not a new variable.
-        # TODO (stretch): allow modification of variables in parent environments
+        # TODO (stretch): allow modification of variables in parent environments (this
+        # requires a new keyword like Python's `global` or `nonlocal`)
         setvalue!(env.parent_env, var, value, false)
     else
         throw(LoxUndefVarError(var))
     end
-    return nothing
+    return env
+end
+function _merge_scopes(env::LoxEnvironment)::Dict{String,Any}
+    v = env.vars
+    if env.parent_env !== nothing
+        # child scopes take precedence, so must be the second argument to merge
+        return merge(_merge_scopes(env.parent_env), v)
+    else
+        return v
+    end
 end
 
+
 struct LoxNil end
+
+# simple wrapper for now, but could be extended later
+struct LoxFunction
+    declaration::Parser.LoxFunDeclaration
+end
+Base.show(io::IO, f::LoxFunction) = print(io, "<Lox function $(f.declaration.name.identifier)>")
+
+struct MethodTable
+    methods::Dict{Int,LoxFunction} # Mapping from arity to the LoxFunction
+end
+Base.show(io::IO, mt::MethodTable) = print(io, "<Lox method table with arities: $(collect(keys(mt.methods)))>")
+function setvalue!(
+    env::LoxEnvironment,
+    var::Parser.LoxVariable,
+    value::LoxFunction,
+    ::Bool,
+)
+    arity = length(value.declaration.parameters)
+    if haskey(env.vars, var.identifier)
+        mt = env.vars[var.identifier]
+        if mt isa MethodTable
+            # Add to existing method table
+            if haskey(mt.methods, arity)
+                printstyled("Lox: redefining $arity-arity method for $(var.identifier)\n"; color=:yellow)
+            end
+            mt.methods[arity] = value
+            return env
+        else
+            throw(
+                LoxTypeError(
+                    var,
+                    "$(var.identifier) already defined as a non-function value",
+                ),
+            )
+        end
+    else
+        env.vars[var.identifier] = MethodTable(Dict(arity => value))
+        return env
+    end
+    # TODO: We don't check parent scopes for existing method tables. This means
+    # that methods are strictly local to the scope that they are defined in. I'm
+    # not sure if this is OK; we might need to change it later.
+end
 
 abstract type LoxEvalError <: LoxError end
 
@@ -145,6 +202,18 @@ function lox_eval(expr::Parser.LoxBinary{Parser.Add}, env::LoxEnvironment)
         )
     end
 end
+function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
+    callee = lox_eval(expr.callee, env)
+    nargs = length(expr.arguments)
+    # TODO
+end
+
+
+# struct LoxCall{Tex<:LoxExpr} <: LoxExpr
+#     callee::Tex
+#     arguments::Vector{LoxExpr}
+#     right_paren_end_offset::Int
+# end
 
 """
     _lox_eval_expect_f64(expr::LoxExpr, env::LoxEnvironment)
@@ -170,22 +239,26 @@ lox_truthy(value::Bool) = value
 lox_truthy(::Any) = true
 
 """
-    lox_exec(stmt_or_prg)
+    lox_exec(stmt_or_prg, env::LoxEnvironment)::LoxEnvironment
 
-Execute a statement or programme in Lox.
+Execute a statement or programme in Lox. Returns the updated environment.
 """
 function lox_exec(stmt::Parser.LoxVarDeclaration{Nothing}, env::LoxEnvironment)
     setvalue!(env, stmt.variable, LoxNil, true)
-    nothing
+    return env
 end
 function lox_exec(stmt::Parser.LoxVarDeclaration{<:Parser.LoxExpr}, env::LoxEnvironment)
     initial_value = lox_eval(stmt.initial_expr, env)
     setvalue!(env, stmt.variable, initial_value, true)
-    nothing
+    return env
+end
+function lox_exec(decl::Parser.LoxFunDeclaration, env::LoxEnvironment)
+    setvalue!(env, decl.name, LoxFunction(decl), true)
+    return env
 end
 function lox_exec(stmt::Parser.LoxExprStatement, env::LoxEnvironment)
     lox_eval(stmt.expression, env)
-    nothing
+    return env
 end
 function lox_exec(stmt::Parser.LoxPrintStatement, env::LoxEnvironment)
     value = lox_eval(stmt.expression, env)
@@ -195,7 +268,7 @@ function lox_exec(stmt::Parser.LoxPrintStatement, env::LoxEnvironment)
     else
         println(value)
     end
-    nothing
+    return env
 end
 function lox_exec(stmt::Parser.LoxIfStatement, env::LoxEnvironment)
     condition = lox_eval(stmt.condition, env)
@@ -206,13 +279,13 @@ function lox_exec(stmt::Parser.LoxIfStatement, env::LoxEnvironment)
             lox_exec(stmt.else_branch, env)
         end
     end
-    nothing
+    return env
 end
 function lox_exec(stmt::Parser.LoxWhileStatement, env::LoxEnvironment)
     while lox_truthy(lox_eval(stmt.condition, env))
         lox_exec(stmt.body, env)
     end
-    nothing
+    return env
 end
 function lox_exec(stmt::Parser.LoxBlockStatement, env::LoxEnvironment)
     # Generate a new child environment
@@ -220,17 +293,17 @@ function lox_exec(stmt::Parser.LoxBlockStatement, env::LoxEnvironment)
     foreach(stmt.statements) do child_stmt
         lox_exec(child_stmt, new_env)
     end
-    nothing
+    return env
 end
 
 function lox_exec(
     prg::Parser.LoxProgramme,
-    env::LoxEnvironment = LoxEnvironment(nothing, Dict{String,Any}()),
+    env::LoxEnvironment=LoxEnvironment(nothing, Dict{String,Any}()),
 )
     for stmt in prg.statements
         lox_exec(stmt, env)
     end
-    nothing
+    return env
 end
 
 end # module Eval

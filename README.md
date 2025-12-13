@@ -32,3 +32,18 @@ To run a file from the Julia REPL:
 ```julia
 using LoxInterpreter; run_file("path/to/lox_file.lox")
 ```
+
+## Differences from the book
+
+The interpreter contains several differences from the book (mainly because I wanted to experiment with extra features).
+
+- The magic variable `__scope__` prints the current scope when evaluated. Note that this returns a Julia dictionary, so you can't actually do anything with it in Lox (except print it).
+- Methods with different arities can be defined for the same function (i.e. function overloading based on number of arguments). (But variadic functions are not supported.)
+- There is quite a fair bit of nice pretty-printing for errors!
+
+```
+$ jp interpreter.jl ../loxprogs/dividezero.lox
+error @ ../loxprogs/dividezero.lox:5:9
+    var z = hello / world;
+            ^^^^^^^^^^^^^ division by zero
+```
