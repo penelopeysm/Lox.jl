@@ -37,6 +37,8 @@ using LoxInterpreter; run_file("path/to/lox_file.lox")
 
 The interpreter contains several differences from the book (mainly because I wanted to experiment with extra features).
 
+- `return` statements outside of functions are not allowed.
+
 - The magic variable `__scope__` prints the current scope when evaluated. Note that this returns a Julia dictionary, so you can't actually do anything with it in Lox (except print it). This is mainly for debugging purposes, but if Lox had its own dictionaries, then this would play a similar role to Julia's `Base.@locals`.
 
 ```

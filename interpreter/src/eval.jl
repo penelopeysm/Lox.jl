@@ -122,6 +122,19 @@ Errors.get_offset(err::LoxUndefVarError) =
 Errors.get_message(err::LoxUndefVarError) =
     "undefined variable: `$(err.variable.identifier)`"
 
+struct LoxUnexpectedReturnError <: LoxEvalError
+    return_stmt::Parser.LoxReturnStatement
+end
+Errors.get_offset(err::LoxUnexpectedReturnError) =
+    (Parser.start_offset(err.return_stmt), Parser.end_offset(err.return_stmt))
+Errors.get_message(err::LoxUnexpectedReturnError) =
+    "unexpected return statement outside of function body"
+
+struct LoxReturn{T} <: LoxEvalError
+    stmt::Parser.LoxReturnStatement
+    value::T
+end
+
 """
     lox_eval(::LoxExpr, ::LoxEnvironment)
 
@@ -220,7 +233,16 @@ function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
                 setvalue!(new_env, param, arg_value, true)
             end
             # Then execute the function
-            lox_exec(func.declaration.body, new_env)
+            try
+                lox_exec(func.declaration.body, new_env; allow_return=true)
+            catch e
+                if e isa LoxReturn
+                    return e.value
+                else
+                    # bug in implementation
+                    rethrow()
+                end
+            end
             # TODO: handle return values.
         else
             throw(
@@ -292,6 +314,10 @@ function lox_exec(stmt::Parser.LoxExprStatement, env::LoxEnvironment)
     lox_eval(stmt.expression, env)
     return env
 end
+function lox_exec(stmt::Parser.LoxReturnStatement, env::LoxEnvironment)
+    val = lox_eval(stmt.expression, env)
+    throw(LoxReturn(stmt, val))
+end
 function lox_exec(stmt::Parser.LoxPrintStatement, env::LoxEnvironment)
     value = lox_eval(stmt.expression, env)
     if value isa LoxNil
@@ -319,11 +345,24 @@ function lox_exec(stmt::Parser.LoxWhileStatement, env::LoxEnvironment)
     end
     return env
 end
-function lox_exec(stmt::Parser.LoxBlockStatement, env::LoxEnvironment)
+function lox_exec(stmt::Parser.LoxBlockStatement, env::LoxEnvironment; allow_return=false)
     # Generate a new child environment
     new_env = LoxEnvironment(env, Dict{String,Any}())
-    foreach(stmt.statements) do child_stmt
-        lox_exec(child_stmt, new_env)
+    try
+        foreach(stmt.statements) do child_stmt
+            lox_exec(child_stmt, new_env)
+        end
+    catch e
+        if e isa LoxReturn
+            if allow_return
+                # bubble it up and let caller handle it
+                rethrow()
+            else
+                throw(LoxUnexpectedReturnError(e.stmt))
+            end
+        else
+            rethrow()
+        end
     end
     return env
 end

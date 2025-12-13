@@ -146,6 +146,25 @@ end
             LoxInterpreter.EXIT_RUNTIME_ERROR,
         )
     end
+
+    @testset "functions" begin
+        ftest(
+            "../../loxprogs/multimethods.lox",
+            [
+                "1.0\n6.0"
+            ],
+            String[],
+            0,
+        )
+        ftest(
+            "../../loxprogs/fibonacci.lox",
+            [
+                "0.0\n1.0\n1.0\n2.0\n3.0\n5.0\n8.0\n13.0\n21.0\n34.0"
+            ],
+            String[],
+            0,
+        )
+    end
 end
 
 end # module

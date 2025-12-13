@@ -82,6 +82,14 @@ end
 start_offset(stmt::LoxPrintStatement) = stmt.start_offset
 end_offset(stmt::LoxPrintStatement) = stmt.end_offset
 
+struct LoxReturnStatement{Tex<:LoxExpr} <: LoxStatement
+    expression::Tex
+    start_offset::Int
+    end_offset::Int
+end
+start_offset(stmt::LoxReturnStatement) = stmt.start_offset
+end_offset(stmt::LoxReturnStatement) = stmt.end_offset
+
 struct LoxIfStatement{
     Tcond<:LoxExpr,
     Tthen<:LoxStatement,
@@ -269,6 +277,7 @@ to_sexp_op(op::MinusUnary) = "-"
 to_sexp_op(op::And) = "and"
 to_sexp_op(op::Or) = "or"
 to_sexp(stmt::LoxPrintStatement) = "(print " * to_sexp(stmt.expression) * ")"
+to_sexp(stmt::LoxReturnStatement) = "(return " * to_sexp(stmt.expression) * ")"
 to_sexp(stmt::LoxStatement) = "(stmt " * to_sexp(stmt.expression) * ")"
 to_sexp(var_decl::LoxVarDeclaration{Nothing}) = "(decl " * to_sexp(var_decl.variable) * ")"
 to_sexp(var_decl::LoxVarDeclaration{Tex}) where {Tex} =
@@ -751,40 +760,40 @@ function for_statement!(s::ParserState)::LoxBlockStatement
     end
 end
 
-function statement!(s::ParserState)::LoxStatement
-    next_ltoken = peek_next(s)
-    # Handle block statements
-    if next_ltoken.token isa Lexer.LeftBrace
-        return block_statement!(s)
-    end
-    # Handle if statements
-    if next_ltoken.token isa Lexer.If
-        return if_statement!(s)
-    end
-    # Handle for statements
-    if next_ltoken.token isa Lexer.For
-        return for_statement!(s)
-    end
-    # Handle while statements
-    if next_ltoken.token isa Lexer.While
-        return while_statement!(s)
-    end
-    # Everything else: print statement, or a simple expression statement
-    is_print_statement, print_start_offset = begin
-        if next_ltoken.token isa Lexer.Print
-            consume_next!(s)
-            true, next_ltoken.start_offset
-        else
-            false, nothing
-        end
-    end
-    # expression statement, i.e. an expression followed by a semicolon
+function expr_statement!(s::ParserState)::LoxExprStatement
     expr = expression!(s)
-    next_ltoken = consume_or_error!(s, Lexer.Semicolon, "Expected ';' after expression")
-    return if is_print_statement
-        LoxPrintStatement(expr, print_start_offset, next_ltoken.end_offset)
+    semicolon = consume_or_error!(s, Lexer.Semicolon, "Expected ';' after expression")
+    return LoxExprStatement(expr, semicolon.end_offset)
+end
+
+function print_statement!(s::ParserState)::LoxPrintStatement
+    print_ltoken = consume_or_error!(s, Lexer.Print, "unreachable: print_statement! called without print token")
+    expr_statement = expr_statement!(s)
+    return LoxPrintStatement(expr_statement.expression, print_ltoken.start_offset, expr_statement.end_offset)
+end
+
+function return_statement!(s::ParserState)::LoxReturnStatement
+    return_ltoken = consume_or_error!(s, Lexer.Return, "unreachable: return_statement! called without return token")
+    expr_statement = expr_statement!(s)
+    return LoxReturnStatement(expr_statement.expression, return_ltoken.start_offset, expr_statement.end_offset)
+end
+
+function statement!(s::ParserState)::LoxStatement
+    next_token = peek_next_unlocated(s)
+    return if next_token isa Lexer.LeftBrace
+        block_statement!(s)
+    elseif next_token isa Lexer.If
+        if_statement!(s)
+    elseif next_token isa Lexer.For
+        for_statement!(s)
+    elseif next_token isa Lexer.While
+        while_statement!(s)
+    elseif next_token isa Lexer.Print
+        print_statement!(s)
+    elseif next_token isa Lexer.Return
+        return_statement!(s)
     else
-        LoxExprStatement(expr, next_ltoken.end_offset)
+        expr_statement!(s)
     end
 end
 

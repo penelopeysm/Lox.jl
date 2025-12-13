@@ -1,0 +1,5 @@
+fun foo(a) { print a; }
+fun foo(a, b) { print a * b; }
+
+foo(1);
+foo(2, 3);

@@ -22,12 +22,17 @@ Execute a Lox source file.
 Returns an exit code indicating success or failure.
 """
 function run_file(filename::AbstractString, silent::Bool=false)::Int
+    if isdir(filename)
+        printstyled(Base.stderr, "error: "; color=:red, bold=true)
+        println(Base.stderr, "`$filename` is a directory")
+        return EXIT_FILE_NOT_FOUND
+    end
     try
         contents = strip(read(filename, String))
         location = Location(filename, 1, 0)
-        maybe_error = run(contents, location, silent)
-        if maybe_error !== nothing
-            report_error(maybe_error, contents, location)
+        env_or_error = run(contents, location, silent)
+        if env_or_error isa LoxError
+            report_error(env_or_error, contents, location)
             return EXIT_RUNTIME_ERROR
         else
             return EXIT_SUCCESS
@@ -76,7 +81,12 @@ function run_prompt(silent::Bool=false)::Nothing
         end
         source = strip(source)
         if !isempty(source)
-            env = run(source, Location("REPL", line_number, 0), silent, env)
+            env_or_err = run(source, Location("REPL", line_number, 0), silent, env)
+            if env_or_err isa LoxError
+                report_error(env_or_err, source, Location("REPL", line_number, 0))
+            else
+                env = env_or_err
+            end
         end
         line_number += nlines
     end
