@@ -180,7 +180,6 @@ abstract type LoxUnaryOp end
 # NOTE: This requires that all subtypes of LoxUnaryOp have a field `ltoken`
 start_offset(u::LoxUnaryOp) = start_offset(u.ltoken)
 end_offset(u::LoxUnaryOp) = end_offset(u.ltoken)
-
 struct Bang <: LoxUnaryOp
     ltoken::Lexer.LocatedToken{Lexer.Bang}
 end
@@ -193,6 +192,14 @@ struct LoxUnary{Top<:LoxUnaryOp,Tex<:LoxExpr} <: LoxExpr
 end
 start_offset(u::LoxUnary) = start_offset(u.operator)
 end_offset(u::LoxUnary) = end_offset(u.right)
+
+struct LoxCall{Tex<:LoxExpr} <: LoxExpr
+    callee::Tex
+    arguments::Vector{LoxExpr}
+    right_paren_end_offset::Int
+end
+start_offset(c::LoxCall) = start_offset(c.callee)
+end_offset(c::LoxCall) = c.right_paren_end_offset
 
 struct LoxGrouping{Tex<:LoxExpr} <: LoxExpr
     expression::Tex
@@ -221,6 +228,11 @@ to_sexp(expr::LoxLiteral{Nothing}) = "nil"
 to_sexp(var::LoxVariable) = ("var'" * var.identifier * "'")
 to_sexp(expr::LoxGrouping) = "(group " * to_sexp(expr.expression) * ")"
 to_sexp(expr::LoxUnary) = "(" * to_sexp_op(expr.operator) * " " * to_sexp(expr.right) * ")"
+to_sexp(expr::LoxCall) =
+    "(call " *
+    to_sexp(expr.callee) *
+    (length(expr.arguments) == 0 ? "" : " " * join(map(to_sexp, expr.arguments), " ")) *
+    ")"
 to_sexp(expr::LoxBinary) =
     "(" *
     to_sexp_op(expr.operator) *
@@ -280,9 +292,9 @@ end
 function get_next_offset(s::ParserState)::Int
     return s.tokens[s.tokens_read+1].start_offset
 end
-function consume_next!(s::ParserState)::Nothing
+function consume_next!(s::ParserState)::Lexer.LocatedToken
     s.tokens_read += 1
-    return nothing
+    return s.tokens[s.tokens_read]
 end
 function add_error!(s::ParserState, e::LoxParseError)::Nothing
     push!(s.parse_errors, e)
@@ -295,8 +307,7 @@ function consume_or_error!(
 )::Lexer.LocatedToken
     next_ltoken = peek_next(s)
     if next_ltoken.token isa expected_token
-        consume_next!(s)
-        return next_ltoken
+        return consume_next!(s)
     else
         throw(LoxParseError(next_ltoken.end_offset, errmsg))
     end
@@ -388,7 +399,56 @@ function unary!(s::ParserState)::LoxExpr
         right_expr = unary!(s)
         return LoxUnary(MinusUnary(next_ltoken), right_expr)
     else
-        return primary!(s)
+        return call!(nothing, s)
+    end
+end
+
+function call!(::Nothing, s::ParserState)::LoxExpr
+    callee_or_primary = primary!(s)
+    if peek_next_unlocated(s) isa Lexer.LeftParen
+        args, rparen_end_offset = _call_args!(s)
+        return call!(LoxCall(callee_or_primary, args, rparen_end_offset), s)
+    else
+        return callee_or_primary
+    end
+end
+function call!(callee::LoxExpr, s::ParserState)::LoxExpr
+    if peek_next_unlocated(s) isa Lexer.LeftParen
+        args, rparen_end_offset = _call_args!(s)
+        return LoxCall(callee, args, rparen_end_offset)
+    else
+        return callee
+    end
+end
+
+function _call_args!(s::ParserState)::Tuple{Vector{LoxExpr},Int}
+    consume_or_error!(s, Lexer.LeftParen, "unreachable: _call_args! called without left paren")
+    args = LoxExpr[]
+    next_token = peek_next(s)
+    # check for empty argument list
+    if next_token.token isa Lexer.RightParen
+        consume_next!(s) # right paren
+        return args, next_token.end_offset
+    end
+    # otherwise, there's one or more arguments
+    while true
+        # Technically, Lox's spec says up to 255 arguments, but we won't enforce that here.
+        # That could be trivially added here by checking length(args).
+        push!(args, expression!(s))
+        if peek_next_unlocated(s) isa Lexer.Comma
+            consume_next!(s) # comma
+            continue
+        elseif peek_next_unlocated(s) isa Lexer.RightParen
+            rparen = consume_next!(s)
+            return args, rparen.end_offset
+        else
+            throw(
+                LoxParseError(
+                    get_next_offset(s),
+                    "expected ',' or ')' after function call argument",
+                ),
+            )
+        end
     end
 end
 
@@ -723,6 +783,31 @@ function parse(
         )
     end
     return prog, parse_errors
+end
+
+"""
+    LoxInterpreter.Parser.parse(s::AbstractString)
+
+Convenience function to perform lexing and parsing in one step.
+"""
+function parse(s::AbstractString)
+    tokens, lex_errors = Lexer.lex(s)
+    if !isempty(lex_errors)
+        foreach(lex_errors) do e
+            showerror(stderr, e)
+            println(stderr)
+        end
+        error("failed to lex")
+    end
+    prog, parse_errors = parse(tokens)
+    if !isempty(parse_errors)
+        foreach(parse_errors) do e
+            showerror(stderr, e)
+            println(stderr)
+        end
+        error("failed to parse")
+    end
+    return prog
 end
 
 end # module
