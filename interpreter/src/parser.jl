@@ -422,7 +422,11 @@ function call!(callee::LoxExpr, s::ParserState)::LoxExpr
 end
 
 function _call_args!(s::ParserState)::Tuple{Vector{LoxExpr},Int}
-    consume_or_error!(s, Lexer.LeftParen, "unreachable: _call_args! called without left paren")
+    consume_or_error!(
+        s,
+        Lexer.LeftParen,
+        "unreachable: _call_args! called without left paren",
+    )
     args = LoxExpr[]
     next_token = peek_next(s)
     # check for empty argument list
