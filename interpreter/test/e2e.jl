@@ -167,7 +167,7 @@ end
         ftest(
             "../../loxprogs/closures.lox",
             [
-                "1.0\n2.0\nglobal\nh1\nglobal\nh2"
+                "1.0\n2.0\nglobal\nh1\nglobal\nh2\n1.0\n1.0"
             ],
             String[],
             0,

@@ -13,11 +13,14 @@ function getvalue(env::LoxEnvironment, var::Parser.LoxVariable)
     if var.env_index == -1
         # could not be statically resolved (for example, if the variable is used
         # in a function definition, but points to a global that's only defined later)
-        # just fall back to dynamic lookup.
-        if haskey(env.vars, var.identifier)
-            return env.vars[var.identifier]
-        elseif env.parent_env !== nothing
-            return getvalue(env.parent_env, var)
+        # so we should traverse until we reach the top of the chain (i.e. global scope)
+        # and see if it's there.
+        global_scope = env
+        while global_scope.parent_env !== nothing
+            global_scope = global_scope.parent_env
+        end
+        if haskey(global_scope.vars, var.identifier)
+            return global_scope.vars[var.identifier]
         else
             throw(LoxUndefVarError(var))
         end

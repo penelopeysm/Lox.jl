@@ -6,7 +6,6 @@ fun makeCounter() {
     }
     return count;
 }
-
 var counter = makeCounter();
 counter(); // should print 1.0
 counter(); // should print 2.0
@@ -24,3 +23,18 @@ fun scopes() {
     inner(); // should print "global" and "h2"
 }
 scopes();
+
+fun final() {
+    // Here, i cannot be resolved by the semantic analysis
+    // pass. That means that i should always refer to a
+    // global...
+    fun g() {
+        print i;
+    }
+    g();
+    // ... even if it is later defined as a local.
+    var i = 2;
+    g();
+}
+var i = 1;
+final(); // should print 1 and 1
