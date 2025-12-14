@@ -45,7 +45,7 @@ lox> var x = 1; print __scope__;
 Dict{String, Any}("x" => 1.0)
 ```
 
-- Methods with different arities can be defined for the same function (i.e. function overloading based on number of arguments). This is similar to C++ multimethods, but only for arity (not types, since there is no compile-time type checking).
+- Methods with different arities can be defined for the same function (i.e. function overloading based on number of arguments). This is similar to C++ function overloading, but only for arity (not types: Lox types are (mostly) erased at runtime, at least in the current implementation).
 
 ```
 lox> fun foo(a) { print a; }
@@ -63,8 +63,4 @@ $ cd interpreter; julia --project=. interpreter.jl ../loxprogs/dividezero.lox
 error @ ../loxprogs/dividezero.lox:5:9
     var z = hello / world;
             ^^^^^^^^^^^^^ division by zero
-        end
-        end
-        end
-        end
 ```
