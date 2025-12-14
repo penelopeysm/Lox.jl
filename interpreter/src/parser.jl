@@ -16,7 +16,20 @@ Errors.get_message(err::LoxParseError) = err.message
 
 ### AST types
 
-abstract type LoxExpr end
+abstract type LoxExprOrDecl end
+
+abstract type LoxExpr <: LoxExprOrDecl end
+abstract type LoxDeclaration <: LoxExprOrDecl end
+
+abstract type LoxStatement <: LoxDeclaration end
+
+struct LoxProgramme
+    statements::Vector{LoxDeclaration}
+end
+Base.:(==)(prg1::LoxProgramme, prg2::LoxProgramme) = prg1.statements == prg2.statements
+children(prg::LoxProgramme) = prg.statements
+
+##### Exprs
 
 # In theory, we _could_ use these type parameters for static type checking
 # purposes...
@@ -40,6 +53,7 @@ struct LoxLiteral{T<:Union{Float64,Bool,String,Nothing}} <: LoxExpr
 end
 start_offset(l::LoxLiteral) = l.start_offset
 end_offset(l::LoxLiteral) = l.end_offset
+children(::LoxLiteral) = LoxExprOrDecl[]
 
 mutable struct LoxVariable <: LoxExpr
     const identifier::String
@@ -53,8 +67,10 @@ mutable struct LoxVariable <: LoxExpr
 end
 start_offset(v::LoxVariable) = v.start_offset
 end_offset(v::LoxVariable) = v.end_offset
+children(::LoxVariable) = LoxExprOrDecl[]
 
-abstract type LoxDeclaration end
+##### Decls
+
 struct LoxVarDeclaration{Tex<:Union{LoxExpr,Nothing}} <: LoxDeclaration
     # this is the variable itself
     variable::LoxVariable
@@ -66,14 +82,19 @@ start_offset(decl::LoxVarDeclaration) = decl.var_start_offset
 end_offset(decl::LoxVarDeclaration{Nothing}) = end_offset(decl.variable)
 end_offset(decl::LoxVarDeclaration{Tex}) where {Tex<:LoxExpr} =
     end_offset(decl.initial_expr)
+children(decl::LoxVarDeclaration{Nothing}) = [decl.variable]
+children(decl::LoxVarDeclaration{Tex}) where {Tex<:LoxExpr} =
+    [decl.variable, decl.initial_expr]
 
-abstract type LoxStatement <: LoxDeclaration end
+##### Statements
+
 struct LoxExprStatement{Tex<:LoxExpr} <: LoxStatement
     expression::Tex
     end_offset::Int # this refers to end offset of the semicolon
 end
 start_offset(stmt::LoxExprStatement) = start_offset(stmt.expression)
 end_offset(stmt::LoxExprStatement) = stmt.end_offset
+children(stmt::LoxExprStatement) = [stmt.expression]
 
 struct LoxPrintStatement{Tex<:LoxExpr} <: LoxStatement
     expression::Tex
@@ -82,6 +103,7 @@ struct LoxPrintStatement{Tex<:LoxExpr} <: LoxStatement
 end
 start_offset(stmt::LoxPrintStatement) = stmt.start_offset
 end_offset(stmt::LoxPrintStatement) = stmt.end_offset
+children(stmt::LoxPrintStatement) = [stmt.expression]
 
 struct LoxReturnStatement{Tex<:LoxExpr} <: LoxStatement
     expression::Tex
@@ -90,6 +112,7 @@ struct LoxReturnStatement{Tex<:LoxExpr} <: LoxStatement
 end
 start_offset(stmt::LoxReturnStatement) = stmt.start_offset
 end_offset(stmt::LoxReturnStatement) = stmt.end_offset
+children(stmt::LoxReturnStatement) = [stmt.expression]
 
 struct LoxIfStatement{
     Tcond<:LoxExpr,
@@ -105,6 +128,11 @@ start_offset(stmt::LoxIfStatement) = stmt.if_start_offset
 end_offset(stmt::LoxIfStatement) =
     stmt.else_branch === nothing ? end_offset(stmt.then_branch) :
     end_offset(stmt.else_branch)
+function children(stmt::LoxIfStatement)
+    c = [stmt.condition, stmt.then_branch]
+    stmt.else_branch !== nothing && push!(c, stmt.else_branch)
+    return c
+end
 
 struct LoxWhileStatement{Tcond<:LoxExpr,Tbody<:LoxStatement} <: LoxStatement
     condition::Tcond
@@ -113,6 +141,7 @@ struct LoxWhileStatement{Tcond<:LoxExpr,Tbody<:LoxStatement} <: LoxStatement
 end
 start_offset(stmt::LoxWhileStatement) = stmt.while_start_offset
 end_offset(stmt::LoxWhileStatement) = end_offset(stmt.body)
+children(stmt::LoxWhileStatement) = [stmt.condition, stmt.body]
 
 struct LoxBlockStatement <: LoxStatement
     statements::Vector{LoxDeclaration}
@@ -121,6 +150,7 @@ struct LoxBlockStatement <: LoxStatement
 end
 start_offset(stmt::LoxBlockStatement) = stmt.start_offset
 end_offset(stmt::LoxBlockStatement) = stmt.end_offset
+children(stmt::LoxBlockStatement) = stmt.statements
 
 struct LoxFunDeclaration <: LoxDeclaration
     name::LoxVariable
@@ -130,11 +160,9 @@ struct LoxFunDeclaration <: LoxDeclaration
 end
 start_offset(decl::LoxFunDeclaration) = decl.fun_start_offset
 end_offset(decl::LoxFunDeclaration) = end_offset(decl.body)
+children(decl::LoxFunDeclaration) = [decl.name, decl.parameters, decl.body]
 
-struct LoxProgramme
-    statements::Vector{LoxDeclaration}
-end
-Base.:(==)(prg1::LoxProgramme, prg2::LoxProgramme) = prg1.statements == prg2.statements
+#### More exprs
 
 # Indeed, we're very quickly reaching the point where we want GADTs...
 abstract type LoxBinaryOp end
@@ -195,6 +223,7 @@ struct LoxBinary{Top<:LoxBinaryOp,Tex1<:LoxExpr,Tex2<:LoxExpr} <: LoxExpr
 end
 start_offset(b::LoxBinary) = start_offset(b.left)
 end_offset(b::LoxBinary) = end_offset(b.right)
+children(b::LoxBinary) = [b.left, b.right]
 
 abstract type LoxUnaryOp end
 # NOTE: This requires that all subtypes of LoxUnaryOp have a field `ltoken`
@@ -212,6 +241,7 @@ struct LoxUnary{Top<:LoxUnaryOp,Tex<:LoxExpr} <: LoxExpr
 end
 start_offset(u::LoxUnary) = start_offset(u.operator)
 end_offset(u::LoxUnary) = end_offset(u.right)
+children(u::LoxUnary) = [u.right]
 
 struct LoxCall{Tex<:LoxExpr} <: LoxExpr
     callee::Tex
@@ -220,6 +250,7 @@ struct LoxCall{Tex<:LoxExpr} <: LoxExpr
 end
 start_offset(c::LoxCall) = start_offset(c.callee)
 end_offset(c::LoxCall) = c.right_paren_end_offset
+children(c::LoxCall) = [c.callee, c.arguments...]
 
 struct LoxGrouping{Tex<:LoxExpr} <: LoxExpr
     expression::Tex
@@ -228,6 +259,7 @@ struct LoxGrouping{Tex<:LoxExpr} <: LoxExpr
 end
 start_offset(g::LoxGrouping) = g.start_offset
 end_offset(g::LoxGrouping) = g.end_offset
+children(g::LoxGrouping) = [g.expression]
 
 # Note that assignments are expressions, not statements
 struct LoxAssignment{Tex<:LoxExpr} <: LoxExpr
@@ -238,6 +270,7 @@ struct LoxAssignment{Tex<:LoxExpr} <: LoxExpr
 end
 start_offset(a::LoxAssignment) = start_offset(a.target_variable)
 end_offset(a::LoxAssignment) = end_offset(a.value_expression)
+children(a::LoxAssignment) = [a.target_variable, a.value_expression]
 
 ### Pretty-printing parser outputs
 
