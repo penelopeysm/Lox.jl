@@ -258,7 +258,7 @@ function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
             end
             # Then execute the function
             try
-                lox_exec(func.declaration.body, new_env; allow_return=true)
+                lox_exec(func.declaration.body, new_env)
             catch e
                 if e isa LoxReturn
                     return e.value
@@ -369,24 +369,11 @@ function lox_exec(stmt::Parser.LoxWhileStatement, env::LoxEnvironment)
     end
     return env
 end
-function lox_exec(stmt::Parser.LoxBlockStatement, env::LoxEnvironment; allow_return=false)
+function lox_exec(stmt::Parser.LoxBlockStatement, env::LoxEnvironment)
     # Generate a new child environment
     new_env = LoxEnvironment(env, Dict{String,Any}())
-    try
-        foreach(stmt.statements) do child_stmt
-            lox_exec(child_stmt, new_env)
-        end
-    catch e
-        if e isa LoxReturn
-            if allow_return
-                # bubble it up and let caller handle it
-                rethrow()
-            else
-                throw(LoxUnexpectedReturnError(e.stmt))
-            end
-        else
-            rethrow()
-        end
+    foreach(stmt.statements) do child_stmt
+        lox_exec(child_stmt, new_env)
     end
     return env
 end

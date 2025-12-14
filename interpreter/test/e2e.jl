@@ -172,6 +172,14 @@ end
             String[],
             0,
         )
+        ftest(
+            "../../loxprogs/functional_pair.lox",
+            [
+                "first\nsecond"
+            ],
+            String[],
+            0,
+        )
     end
 end
 
