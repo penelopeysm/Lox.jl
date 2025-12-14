@@ -8,6 +8,19 @@ fun makeCounter() {
 }
 
 var counter = makeCounter();
-counter();
-counter();
-counter();
+counter(); // should print 1.0
+counter(); // should print 2.0
+
+var g = "global";
+fun scopes() {
+    var h = "h1";
+    fun inner() {
+        print g;
+        print h;
+    }
+    inner(); // should print "global" and "h1"
+    var g = "block";
+    h = "h2";
+    inner(); // should print "global" and "h2"
+}
+scopes();

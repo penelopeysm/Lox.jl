@@ -41,14 +41,15 @@ end
 start_offset(l::LoxLiteral) = l.start_offset
 end_offset(l::LoxLiteral) = l.end_offset
 
-struct LoxVariable <: LoxExpr
-    identifier::String
-    start_offset::Int
-    end_offset::Int
+mutable struct LoxVariable <: LoxExpr
+    const identifier::String
+    const start_offset::Int
+    const end_offset::Int
+    env_index::Int # -1 for unresolved; otherwise indicates the number of scopes out
     LoxVariable(liden::Lexer.LocatedToken{Lexer.Identifier}) =
-        new(liden.token.lexeme, liden.start_offset, liden.end_offset)
+        new(liden.token.lexeme, liden.start_offset, liden.end_offset, -1)
     LoxVariable(lv::LoxVariable, new_name::String) =
-        new(new_name, lv.start_offset, lv.end_offset)
+        new(new_name, lv.start_offset, lv.end_offset, -1)
 end
 start_offset(v::LoxVariable) = v.start_offset
 end_offset(v::LoxVariable) = v.end_offset

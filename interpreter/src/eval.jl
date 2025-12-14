@@ -2,6 +2,7 @@ module Eval
 
 using ..Errors: Errors, LoxError, Location
 using ..Parser: Parser
+using ..SemanticAnalysis: SemanticAnalysis
 
 struct LoxEnvironment
     parent_env::Union{LoxEnvironment,Nothing}
@@ -9,14 +10,32 @@ struct LoxEnvironment
 end
 LoxEnvironment() = LoxEnvironment(nothing, Dict{String,Any}())
 function getvalue(env::LoxEnvironment, var::Parser.LoxVariable)
-    if var.identifier == "__scope__"
-        return _merge_scopes(env)
-    elseif haskey(env.vars, var.identifier)
-        return env.vars[var.identifier]
-    elseif env.parent_env !== nothing
-        return getvalue(env.parent_env, var)
+    if var.env_index == -1
+        # could not be statically resolved (for example, if the variable is used
+        # in a function definition, but points to a global that's only defined later)
+        # just fall back to dynamic lookup.
+        if haskey(env.vars, var.identifier)
+            return env.vars[var.identifier]
+        elseif env.parent_env !== nothing
+            return getvalue(env.parent_env, var)
+        else
+            throw(LoxUndefVarError(var))
+        end
+        # TODO: Do this better, i.e. separate globals and locals.
     else
-        throw(LoxUndefVarError(var))
+        # Use the env_index to find the correct environment
+        target_env = env
+        for _ in 1:var.env_index
+            if target_env.parent_env === nothing
+                error("internal error: variable $(var.identifier) has env_index $(var.env_index) but environment chain is too short")
+            end
+            target_env = target_env.parent_env
+        end
+        if haskey(target_env.vars, var.identifier)
+            return target_env.vars[var.identifier]
+        else
+            error("internal error: variable $(var.identifier) not found in environment at index $(var.env_index)")
+        end
     end
 end
 function setvalue!(
@@ -373,6 +392,8 @@ function lox_exec(
     prg::Parser.LoxProgramme,
     env::LoxEnvironment=LoxEnvironment(nothing, Dict{String,Any}()),
 )
+    # annotate LoxVariables with their environment indices
+    SemanticAnalysis.resolve_variables!(prg)
     for stmt in prg.statements
         lox_exec(stmt, env)
     end
