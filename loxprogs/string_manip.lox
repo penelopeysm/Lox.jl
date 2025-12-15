@@ -1,0 +1,14 @@
+fun join(list_of_str, delim) {
+    var n = length(list_of_str);
+    var s = "";
+    for (var i = 0; i < n; i = i + 1) {
+        s = s + at(list_of_str, i);
+        if (i < n - 1) {
+            s = s + delim;
+        }
+    }
+    return s;
+}
+var s1 = "hello";
+var s2 = join(chars(s1), " ");
+print s2; // "h e l l o"

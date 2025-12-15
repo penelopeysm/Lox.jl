@@ -1,0 +1,23 @@
+fun push(list, elem) {
+    return list + vec(elem);
+}
+
+fun slice(list, min, max) {
+    var out = vec();
+    for (var i = min; i < max; i = i + 1) {
+        out = out + vec(at(list, i));
+    }
+    return out;
+}
+
+fun join(list_of_str, delim) {
+    var n = length(list_of_str);
+    var s = "";
+    for (var i = 0; i < n; i = i + 1) {
+        s = s + at(list_of_str, i);
+        if (i < n - 1) {
+            s = s + delim;
+        }
+    }
+    return s;
+}

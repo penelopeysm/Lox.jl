@@ -193,6 +193,25 @@ end
             0,
         )
     end
+
+    @testset "list and string primitives" begin
+        ftest(
+            "lists.lox",
+            [
+                "list<1.0,2.0,a>\n1.0\n2.0\na\n1.0\n2.0\na"
+            ],
+            String[],
+            0,
+        )
+        ftest(
+            "string_manip.lox",
+            [
+                "h e l l o"
+            ],
+            String[],
+            0,
+        )
+    end
 end
 
 end # module

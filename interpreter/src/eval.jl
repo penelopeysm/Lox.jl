@@ -11,11 +11,17 @@ An abstract type for anything that can be a value, i.e., bound to a variable, in
 """
 abstract type AbstractLoxValue end
 
+"""
+    LoxEnvironment
+
+A mapping of variables to values. Optionally also contains a parent environment, which
+allows for inner scopes.
+"""
 struct LoxEnvironment
     parent_env::Union{LoxEnvironment,Nothing}
     vars::Dict{String,Any}
 end
-LoxEnvironment() = LoxEnvironment(nothing, Dict{String,Any}())
+
 function getvalue(env::LoxEnvironment, var::Parser.LoxVariable)
     if var.env_index == -1
         # could not be statically resolved (for example, if the variable is used
@@ -208,8 +214,37 @@ lox_eq(::Parser.LoxExpr, left::LoxString, right::LoxString) =
 lox_add(::Parser.LoxExpr, left::LoxString, right::LoxString) =
     LoxString(left.value * right.value)
 
+"""
+    LoxList
+
+A heterogeneous, immutable list. Equality is defined by contents, not identity.
+
+Lists can be added (like in Python), which concatenates them.
+"""
+struct LoxList <: AbstractLoxValue
+    elements::Vector{AbstractLoxValue}
+end
+lox_repr_type(::LoxList) = "list"
+lox_show(l::LoxList) = "list<" * join(map(lox_show, l.elements), ",") * ">"
+function lox_eq(::Parser.LoxExpr, left::LoxList, right::LoxList)
+    return if length(left.elements) != length(right.elements)
+        LoxBoolean(false)
+    else
+        for (lelem, relem) in zip(left.elements, right.elements)
+            if lelem != relem
+                return LoxBoolean(false)
+            end
+        end
+        return LoxBoolean(true)
+    end
+end
+lox_add(::Parser.LoxExpr, left::LoxList, right::LoxList) =
+    LoxList(vcat(left.elements, right.elements))
+
+abstract type AbstractMethod end
+
 # NOTE: LoxMethod is NOT an AbstractLoxValue
-struct LoxMethod{T<:Union{Parser.LoxVariable,Nothing}}
+struct LoxMethod{T<:Union{Parser.LoxVariable,Nothing}} <: AbstractMethod
     # nothing if it's an anonymous function
     name::T
     parameters::Vector{Parser.LoxVariable}
@@ -223,9 +258,28 @@ struct LoxMethod{T<:Union{Parser.LoxVariable,Nothing}}
         new{Nothing}(nothing, expr.parameters, expr.body, env)
 end
 
+struct NativeMethod{F} <: AbstractMethod
+    julia_fun::F
+end
+
+struct Arity{T<:Union{Int,Nothing}}
+    min::Int
+    max::T
+end
+satisfies_arity(a::Arity{Nothing}, nargs::Int) = nargs >= a.min
+satisfies_arity(a::Arity{Int}, nargs::Int) = nargs >= a.min && nargs <= a.max
+show_arity(a::Arity{Nothing}) = "$(a.min)+"
+function show_arity(a::Arity{Int})
+    return if a.min == a.max
+        "$(a.min)"
+    else
+        "$(a.min)–$(a.max)"
+    end
+end
+
 struct MethodTable <: AbstractLoxValue
     func_name::String
-    methods::Dict{Int,LoxMethod} # Mapping from arity to the LoxMethod
+    methods::Dict{Arity,AbstractMethod} # keys are arity
 end
 lox_repr_type(::MethodTable) = "methodtable"
 lox_show(mt::MethodTable) = "<Lox method table for $mt.func_name with arities: $(collect(keys(mt.methods)))>"
@@ -233,17 +287,18 @@ function define_method!(
     env::LoxEnvironment,
     var::Parser.LoxVariable,
     value::LoxMethod,
-    ::Bool,
 )
-    # This defines a new function
+    # This defines a new function. Right now, in plain Lox syntax, there is no way to define
+    # a variadic function. Thus all Lox-defined functions the arity is a single number.
     fname = var.identifier
-    arity = length(value.parameters)
-    if haskey(env.vars, var.identifier)
-        mt = env.vars[var.identifier]
+    nargs = length(value.parameters)
+    arity = Arity(nargs, nargs)
+    if haskey(env.vars, fname)
+        mt = env.vars[fname]
         if mt isa MethodTable
             # Add to existing method table
             if haskey(mt.methods, arity)
-                printstyled("Lox: redefining $arity-arity method for $(fname)\n"; color=:yellow)
+                printstyled("Lox: redefining method for $(fname) with arity $(show_arity(arity))\n"; color=:yellow)
             end
             mt.methods[arity] = value
             return env
@@ -263,12 +318,68 @@ function define_method!(
     # that methods are strictly local to the scope that they are defined in. I'm
     # not sure if this is OK; we might need to change it later.
 end
+function define_method!(
+    env::LoxEnvironment,
+    fname::String,
+    arity::Arity,
+    value::NativeMethod,
+)
+    if haskey(env.vars, fname)
+        mt = env.vars[fname]
+        if mt isa MethodTable
+            mt.methods[arity] = value
+            return env
+        else
+            error("unreachable: tried to define native method for non-function value")
+        end
+    else
+        env.vars[fname] = MethodTable(fname, Dict(arity => value))
+        return env
+    end
+end
+
+"""
+    resolve_method(call_expr::LoxExpr, mt::MethodTable, nargs::Int)
+
+Determine which method is most appropriate when the given function is called with `nargs`
+arguments.
+"""
+function resolve_method(call_expr::Parser.LoxExpr, mt::MethodTable, nargs::Int)
+    # Step 1: If there is a method with that EXACT arity, pick it
+    exact_arity = Arity(nargs, nargs)
+    haskey(mt.methods, exact_arity) && return mt.methods[exact_arity]
+    # Step 2: If not, find all possible methods and see if there is exactly one
+    # method that satisfies it
+    possible_arities = filter(k -> satisfies_arity(k, nargs), keys(mt.methods))
+    if length(possible_arities) == 1
+        return mt.methods[only(possible_arities)]
+    else
+        # Step 3: If there is more than one possibility, just complain that it's ambiguous,
+        # because I can't be bothered to define more specific tie-breaking rules
+        throw(LoxMethodAmbiguityError(call_expr, mt.func_name, nargs, possible_arities))
+    end
+end
 
 ##################
 # Runtime errors #
 ##################
 
 abstract type LoxEvalError <: LoxError end
+
+# This is NOT a LoxEvalError, because it is caught inside the native method, and thus
+# has no access to debug info (offsets). It has to be thrown and then caught inside
+# lox_eval, which can then augment it with the debug info before rethrowing it.
+struct InsideLoxNativeMethodError <: Exception
+    message::String
+end
+# This is the augmented struct.
+struct LoxNativeMethodError <: LoxEvalError
+    call_expr::Parser.LoxCall
+    message::String
+end
+Errors.get_offset(err::LoxNativeMethodError) =
+    (Parser.start_offset(err.call_expr), Parser.end_offset(err.call_expr))
+Errors.get_message(err::LoxNativeMethodError) = err.message
 
 struct LoxZeroDivisionError <: LoxEvalError
     division_expr::Parser.LoxBinary{Parser.Divide}
@@ -302,9 +413,23 @@ Errors.get_offset(err::LoxUnexpectedReturnError) =
 Errors.get_message(err::LoxUnexpectedReturnError) =
     "unexpected return statement outside of function body"
 
-struct LoxReturn{T} <: LoxEvalError
+# this one is also NOT a LoxEvalError
+struct LoxReturn{T}
     stmt::Parser.LoxReturnStatement
     value::T
+end
+
+struct LoxMethodAmbiguityError{Texpr<:Parser.LoxExpr}
+    expr::Texpr
+    func_name::String
+    nargs::Int
+    possible_arities::Vector{Arity}
+end
+Errors.get_offset(err::LoxMethodAmbiguityError) =
+    (Parser.start_offset(err.expr), Parser.end_offset(err.expr))
+function Errors.get_message(err::LoxMethodAmbiguityError)
+    arities_string = join(map(show_arity, possible_arities), "< ")
+    return "invocation of $(func_name) with $(nargs) arguments is ambiguous; methods are defined for arities $(arities_string)"
 end
 
 ##############
@@ -324,7 +449,8 @@ lox_eval(var::Parser.LoxVariable, env::LoxEnvironment) = getvalue(env, var)
 lox_eval(grp::Parser.LoxGrouping, env::LoxEnvironment) = lox_eval(grp.expression, env)
 function lox_eval(expr::Parser.LoxFunExpr, env::LoxEnvironment)
     f = LoxMethod(expr, env)
-    arity = length(expr.parameters)
+    nargs = length(expr.parameters)
+    arity = Arity(nargs, nargs)
     return MethodTable("<anonymous>", Dict(arity => f))
 end
 function lox_eval(expr::Parser.LoxUnary{Parser.Bang}, env::LoxEnvironment)
@@ -380,38 +506,47 @@ function lox_eval(expr::Parser.LoxBinary{Parser.Divide}, env::LoxEnvironment)
 end
 lox_eval(expr::Parser.LoxBinary{Parser.Add}, env::LoxEnvironment) =
     lox_add(expr, lox_eval(expr.left, env), lox_eval(expr.right, env))
+function _lox_invoke(func::LoxMethod, arg_values::Vector{<:AbstractLoxValue})
+    # Regenerate the function's original environment (but create an inner
+    # one for the function call itself)
+    new_env = LoxEnvironment(func.env, Dict{String,Any}())
+    for (param, arg_value) in zip(func.parameters, arg_values)
+        setvalue!(new_env, param, arg_value, true)
+    end
+    # Then execute the function
+    try
+        lox_exec(func.body, new_env)
+    catch e
+        if e isa LoxReturn
+            return e.value
+        else
+            rethrow()
+        end
+    end
+end
+function _lox_invoke(func::NativeMethod, arg_values::Vector{<:AbstractLoxValue})
+    try
+        return func.julia_fun(arg_values...)
+    catch e
+        # This is the only type of exception that should be thrown inside a
+        # native method
+        if e isa InsideLoxNativeMethodError
+            throw(LoxNativeMethodError(expr, e.message))
+        else
+            # shouldn't happen; if this does it's a bug in the implementation
+            rethrow()
+        end
+    end
+end
 function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
     callee = lox_eval(expr.callee, env)
     nargs = length(expr.arguments)
     if callee isa MethodTable
-        if haskey(callee.methods, nargs)
-            func = callee.methods[nargs]
+        func = resolve_method(expr, callee, nargs)
             arg_values = map(Base.Fix2(lox_eval, env), expr.arguments)
-            # Regenerate the function's original environment (but create an inner
-            # one for the function call itself)
-            new_env = LoxEnvironment(func.env, Dict{String,Any}())
-            for (param, arg_value) in zip(func.parameters, arg_values)
-                setvalue!(new_env, param, arg_value, true)
-            end
-            # Then execute the function
-            try
-                lox_exec(func.body, new_env)
-            catch e
-                if e isa LoxReturn
-                    return e.value
-                else
-                    # bug in implementation
-                    rethrow()
-                end
-            end
-        else
-            throw(
-                LoxTypeError(
-                    expr.callee,
-                    "no $(nargs)-argument method for `$(callee.func_name)`",
-                ),
-            )
-        end
+            # the above infers as Vector{Any}, so we have to convert :(
+            arg_values = convert(Vector{AbstractLoxValue}, arg_values)
+            _lox_invoke(func, arg_values)
     else
         throw(
             LoxTypeError(
@@ -437,7 +572,7 @@ function lox_exec(stmt::Parser.LoxVarDeclaration{<:Parser.LoxExpr}, env::LoxEnvi
     return env
 end
 function lox_exec(decl::Parser.LoxFunDeclaration, env::LoxEnvironment)
-    define_method!(env, decl.name, LoxMethod(decl, env), true)
+    define_method!(env, decl.name, LoxMethod(decl, env))
     return env
 end
 function lox_exec(stmt::Parser.LoxExprStatement, env::LoxEnvironment)
@@ -479,9 +614,66 @@ function lox_exec(stmt::Parser.LoxBlockStatement, env::LoxEnvironment)
     return env
 end
 
+function setup_global_environment()
+    # In this function we can set up our native methods.
+    env = LoxEnvironment(nothing, Dict{String,Any}())
+
+    # clock
+    define_method!(env, "clock", Arity(0, 0), NativeMethod(() -> LoxNumber(time())))
+
+    # readfile
+    function lox_readfile(fname::LoxString)
+        try
+            return LoxString(read(fname.value, String))
+        catch e
+            throw(InsideLoxNativeMethodError("could not read from file $(fname.value)"))
+        end
+    end
+    define_method!(env, "readfile", Arity(1, 1), NativeMethod(lox_readfile))
+
+    # vec
+    lox_vec(args...) = LoxList(collect(args))
+    define_method!(env, "vec", Arity(0, nothing), NativeMethod(lox_vec))
+
+    # length
+    function lox_length(lst::LoxList)
+        return LoxNumber(length(lst.elements))
+    end
+    define_method!(env, "length", Arity(1, 1), NativeMethod(lox_length))
+
+    # at
+    function lox_at(lst::LoxList, index::LoxNumber)
+        idx = Int(round(index.value))
+        if idx < 0 || idx >= length(lst.elements)
+            throw(InsideLoxNativeMethodError("index $(idx) out of bounds for list of length $(length(lst.elements))"))
+        end
+        return lst.elements[idx + 1] # YES, FREEDOM FROM JULIA'S 1-INDEXING
+    end
+    define_method!(env, "at", Arity(2, 2), NativeMethod(lox_at))
+
+    # chars
+    function lox_chars(s::LoxString)
+        return LoxList([LoxString(string(c)) for c in collect(s.value)])
+    end
+    define_method!(env, "chars", Arity(1, 1), NativeMethod(lox_chars))
+
+    # to_number
+    function lox_to_number(s::LoxString)
+        try
+            n = parse(Float64, s.value)
+            return LoxNumber(n)
+        catch e
+            throw(InsideLoxNativeMethodError("could not convert string '$(s.value)' to number"))
+        end
+    end
+    define_method!(env, "to_number", Arity(1, 1), NativeMethod(lox_to_number))
+
+    return env
+end
+
 function lox_exec(
     prg::Parser.LoxProgramme,
-    env::LoxEnvironment=LoxEnvironment(nothing, Dict{String,Any}()),
+    env::LoxEnvironment=setup_global_environment()
 )
     # annotate LoxVariables with their environment indices
     SemanticAnalysis.resolve_variables!(prg)

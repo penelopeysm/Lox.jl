@@ -16,13 +16,13 @@ const EXIT_FILE_NOT_FOUND = 64
 const EXIT_RUNTIME_ERROR = 65
 
 """
-    run_file(filename::AbstractString, silent::Bool=false)::Int
+    run_file(filename::AbstractString, debug::Bool=false)::Int
 
 Execute a Lox source file.
 
 Returns an exit code indicating success or failure.
 """
-function run_file(filename::AbstractString, silent::Bool=false)::Int
+function run_file(filename::AbstractString, debug::Bool=false)::Int
     if isdir(filename)
         printstyled(Base.stderr, "error: "; color=:red, bold=true)
         println(Base.stderr, "`$filename` is a directory")
@@ -31,7 +31,7 @@ function run_file(filename::AbstractString, silent::Bool=false)::Int
     try
         contents = strip(read(filename, String))
         location = Location(filename, 1, 0)
-        env_or_error = run(contents, location, silent)
+        env_or_error = run(contents, location, debug)
         if env_or_error isa LoxError
             report_error(env_or_error, contents, location)
             return EXIT_RUNTIME_ERROR
@@ -50,7 +50,7 @@ function run_file(filename::AbstractString, silent::Bool=false)::Int
 end
 
 """
-    run_prompt(silent::Bool=false)::Nothing
+    run_prompt(debug::Bool=false)::Nothing
 
 Launch an interactive Lox REPL.
 
@@ -59,10 +59,10 @@ Julia REPL, or through ReplMaker.jl.
 
 TODO: Handle Ctrl-C (try/catch InterruptException doesn't seem to work)
 """
-function run_prompt(silent::Bool=false)::Nothing
+function run_prompt(debug::Bool=false)::Nothing
     println("Running prompt. Use two newlines to finish a snippet.")
     line_number = 1
-    env = Eval.LoxEnvironment()
+    env = Eval.setup_global_environment()
     while true
         source = ""
         nlines = 0
@@ -82,7 +82,7 @@ function run_prompt(silent::Bool=false)::Nothing
         end
         source = strip(source)
         if !isempty(source)
-            env_or_err = run(source, Location("REPL", line_number, 0), silent, env)
+            env_or_err = run(source, Location("REPL", line_number, 0), debug, env)
             if env_or_err isa LoxError
                 report_error(env_or_err, source, Location("REPL", line_number, 0))
             else
@@ -110,8 +110,8 @@ end
     run(
         source::AbstractString,
         start_loc::Errors.Location,
-        silent::Bool
-        env::LoxEnvironment=LoxEnvironment()
+        debug::Bool
+        env::LoxEnvironment=Eval.setup_global_environment(),
     )::Union{LoxEnvironment,LoxError}
 
 Execute a Lox source code snippet, optionally with a LoxEnvironment provided. Returns the
@@ -123,12 +123,12 @@ error occurs.
 function run(
     source::AbstractString,
     start_loc::Location,
-    silent::Bool,
-    env::Eval.LoxEnvironment=Eval.LoxEnvironment(),
+    debug::Bool,
+    env::Eval.LoxEnvironment=Eval.setup_global_environment(),
 )::Union{Eval.LoxEnvironment,LoxError}
     try
         tokens, lex_errors = Lexer.lex(source)
-        silent || @info "Tokens: $(tokens)"
+        debug && @info "Tokens: $(tokens)"
         if !isempty(lex_errors)
             warning = "Encountered $(length(lex_errors)) lexing errors:"
             indent = " "^4
@@ -140,7 +140,7 @@ function run(
             @warn warning
         end
         ast, parse_errors = Parser.parse(tokens)
-        silent || @info "AST: $(Parser.to_sexp(ast))"
+        debug && @info "AST: $(Parser.to_sexp(ast))"
         if !isempty(parse_errors)
             warning = "Encountered $(length(parse_errors)) parsing errors:"
             indent = " "^4

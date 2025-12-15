@@ -1,0 +1,12 @@
+// This is NOT a feature described in the books.
+var xs = vec(1, 2, "a");
+
+print xs; // list<1.0,2.0,a>
+
+// Concatenation
+var xs_twice = xs + xs;
+
+// C-style iteration
+for (var i = 0; i < length(xs_twice); i = i + 1) {
+    print at(xs_twice, i);
+}
