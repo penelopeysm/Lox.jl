@@ -676,15 +676,12 @@ function declaration!(s::ParserState)::LoxDeclaration
     next_token = peek_next_unlocated(s)
     return if next_token isa Lexer.Var
         var_declaration!(s)
-    elseif next_token isa Lexer.Fun
-        next_next_token = s.tokens[s.tokens_read+2].token
-        if next_next_token isa Lexer.Identifier
-            fun_declaration!(s)
-        else
-            # this branch handles things like `fun (x) {...};` which are not declarations
-            # but rather an expression statement with an anonymous function.
-            statement!(s)
-        end
+    elseif next_token isa Lexer.Fun && s.tokens[s.tokens_read+2].token isa Lexer.Identifier
+        # We need to check the next-next token to correctly parse things like
+        #     fun (x) {...};
+        # which is not a declaration but rather an expression statement with an
+        # anonymous function.
+        fun_declaration!(s)
     else
         statement!(s)
     end
