@@ -133,7 +133,7 @@ end
             String[],
             [
                 "    print (x + 3);",
-                "          ^^^^^ cannot add values of types String and Float64",
+                "          ^^^^^ cannot add values of types string and number",
             ],
             LoxInterpreter.EXIT_RUNTIME_ERROR,
         )

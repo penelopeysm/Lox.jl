@@ -4,6 +4,13 @@ using ..Errors: Errors, LoxError, Location
 using ..Parser: Parser
 using ..SemanticAnalysis: SemanticAnalysis
 
+"""
+    AbstractLoxValue
+
+An abstract type for anything that can be a value, i.e., bound to a variable, in Lox.
+"""
+abstract type AbstractLoxValue end
+
 struct LoxEnvironment
     parent_env::Union{LoxEnvironment,Nothing}
     vars::Dict{String,Any}
@@ -41,10 +48,11 @@ function getvalue(env::LoxEnvironment, var::Parser.LoxVariable)
         end
     end
 end
+
 function setvalue!(
     env::LoxEnvironment,
     var::Parser.LoxVariable,
-    value::Any,
+    value::AbstractLoxValue,
     is_new_declaration::Bool,
 )
     if haskey(env.vars, var.identifier) || is_new_declaration
@@ -60,6 +68,7 @@ function setvalue!(
     end
     return env
 end
+
 function _merge_scopes(env::LoxEnvironment)::Dict{String,Any}
     v = env.vars
     if env.parent_env !== nothing
@@ -70,10 +79,137 @@ function _merge_scopes(env::LoxEnvironment)::Dict{String,Any}
     end
 end
 
+#############
+# Lox types #
+#############
 
-struct LoxNil end
+"""
+    lox_repr_type(value::AbstractLoxValue)::String
 
-struct LoxFunction{T<:Union{Parser.LoxVariable,Nothing}}
+Get the Julia string representation of the type of a Lox value.
+"""
+function lox_repr_type end
+
+"""
+    lox_show(value::AbstractLoxValue)::String
+
+Get the Julia string representation of a Lox value.
+"""
+function lox_show end
+
+"""
+    lox_truthy(value)::LoxBoolean
+
+Check if a value is "truthy" in Lox. In Lox, `false` and `nil` are falsy, while
+everything else is truthy (even 0).
+"""
+lox_truthy(::AbstractLoxValue) = LoxBoolean(true)
+
+"""
+    lox_eq(expr::LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue)::LoxBoolean
+
+Check if two Lox values are equal. In general, all values of different types are not equal.
+"""
+lox_eq(::Parser.LoxExpr, ::AbstractLoxValue, ::AbstractLoxValue) = LoxBoolean(false)
+
+"""
+    lox_bang(expr::LoxExpr, v::AbstractLoxValue)::LoxBoolean
+
+Logical negation.
+"""
+lox_bang(expr::Parser.LoxExpr, v::AbstractLoxValue) =
+    throw(LoxTypeError(expr, "cannot apply '!' operator to value of type $(lox_repr_type(v))"))
+
+"""
+    lox_unary_negate(expr::LoxExpr, n::AbstractLoxValue)::LoxNumber
+
+Unary negation for numbers.
+"""
+lox_unary_negate(expr::Parser.LoxExpr, n::AbstractLoxValue) = throw(LoxTypeError(expr, "expected number for unary negation, but got $(lox_repr_type(n))"))
+
+"""
+    lox_neq(expr::LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue)::LoxBoolean
+
+Check if two Lox values are unequal. Inequality is always defined such that (a != b) == !(a == b).
+This means that the implementation does not need to create new methods for `lox_neq`; we can just
+rely on implementations of `lox_eq`.
+"""
+lox_neq(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) = lox_bang(expr, lox_eq(expr, left, right))
+
+struct LoxNil <: AbstractLoxValue end
+lox_truthy(::LoxNil) = LoxBoolean(false)
+lox_eq(::Parser.LoxExpr, ::LoxNil, ::LoxNil) = LoxBoolean(true)
+lox_repr_type(::LoxNil) = "nil"
+lox_show(::LoxNil) = "nil"
+
+struct LoxNumber <: AbstractLoxValue
+    # Internally stored as f64
+    value::Float64
+end
+lox_repr_type(::LoxNumber) = "number"
+lox_show(n::LoxNumber) = repr(n.value)
+Base.show(io::IO, n::LoxNumber) = print(io, n.value)
+lox_unary_negate(::Parser.LoxExpr, n::LoxNumber) = LoxNumber(-n.value)
+lox_eq(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
+    LoxBoolean(left.value == right.value)
+# Mathematical operations
+lox_add(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
+    LoxNumber(left.value + right.value)
+lox_add(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
+    throw(LoxTypeError(expr, "cannot add values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+lox_sub(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
+    LoxNumber(left.value - right.value)
+lox_sub(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
+    throw(LoxTypeError(expr, "cannot subtract values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+lox_mul(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
+    LoxNumber(left.value * right.value)
+lox_mul(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
+    throw(LoxTypeError(expr, "cannot multiply values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+function lox_div(expr::Parser.LoxExpr, left::LoxNumber, right::LoxNumber)
+    iszero(right.value) && throw(LoxZeroDivisionError(expr))
+    return LoxNumber(left.value / right.value)
+end
+lox_div(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
+    throw(LoxTypeError(expr, "cannot divide values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+lox_lt(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
+    LoxBoolean(left.value < right.value)
+lox_lt(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
+    throw(LoxTypeError(expr, "cannot compare values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+lox_le(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
+    LoxBoolean(left.value <= right.value)
+lox_le(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
+    throw(LoxTypeError(expr, "cannot compare values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+lox_gt(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
+    LoxBoolean(left.value > right.value)
+lox_gt(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
+    throw(LoxTypeError(expr, "cannot compare values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+lox_ge(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
+    LoxBoolean(left.value >= right.value)
+lox_ge(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
+    throw(LoxTypeError(expr, "cannot compare values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+
+struct LoxBoolean <: AbstractLoxValue
+    value::Bool
+end
+lox_repr_type(::LoxBoolean) = "boolean"
+lox_show(b::LoxBoolean) = repr(b.value)
+lox_truthy(b::LoxBoolean) = b
+lox_bang(::Parser.LoxExpr, b::LoxBoolean) = LoxBoolean(!b.value)
+lox_eq(::Parser.LoxExpr, left::LoxBoolean, right::LoxBoolean) =
+    LoxBoolean(left.value == right.value)
+
+struct LoxString <: AbstractLoxValue
+    value::String
+end
+lox_repr_type(::LoxString) = "string"
+lox_show(s::LoxString) = s.value
+lox_eq(::Parser.LoxExpr, left::LoxString, right::LoxString) =
+    LoxBoolean(left.value == right.value)
+lox_add(::Parser.LoxExpr, left::LoxString, right::LoxString) =
+    LoxString(left.value * right.value)
+
+# NOTE: LoxMethod is NOT an AbstractLoxValue
+struct LoxMethod{T<:Union{Parser.LoxVariable,Nothing}}
     # nothing if it's an anonymous function
     name::T
     parameters::Vector{Parser.LoxVariable}
@@ -81,25 +217,25 @@ struct LoxFunction{T<:Union{Parser.LoxVariable,Nothing}}
     # Capture the environment where the function was defined
     env::LoxEnvironment
 
-    LoxFunction(decl::Parser.LoxFunDeclaration, env::LoxEnvironment) =
+    LoxMethod(decl::Parser.LoxFunDeclaration, env::LoxEnvironment) =
         new{typeof(decl.name)}(decl.name, decl.parameters, decl.body, env)
-    LoxFunction(expr::Parser.LoxFunExpr, env::LoxEnvironment) =
+    LoxMethod(expr::Parser.LoxFunExpr, env::LoxEnvironment) =
         new{Nothing}(nothing, expr.parameters, expr.body, env)
 end
-Base.show(io::IO, f::LoxFunction{<:Parser.LoxVariable}) = print(io, "<Lox function $(f.name.identifier)>")
-Base.show(io::IO, ::LoxFunction{Nothing}) = print(io, "<Lox anonymous function>")
 
-struct MethodTable
+struct MethodTable <: AbstractLoxValue
     func_name::String
-    methods::Dict{Int,LoxFunction} # Mapping from arity to the LoxFunction
+    methods::Dict{Int,LoxMethod} # Mapping from arity to the LoxMethod
 end
-Base.show(io::IO, mt::MethodTable) = print(io, "<Lox method table with arities: $(collect(keys(mt.methods)))>")
-function setvalue!(
+lox_repr_type(::MethodTable) = "methodtable"
+lox_show(mt::MethodTable) = "<Lox method table for $mt.func_name with arities: $(collect(keys(mt.methods)))>"
+function define_method!(
     env::LoxEnvironment,
     var::Parser.LoxVariable,
-    value::LoxFunction,
+    value::LoxMethod,
     ::Bool,
 )
+    # This defines a new function
     fname = var.identifier
     arity = length(value.parameters)
     if haskey(env.vars, var.identifier)
@@ -127,6 +263,10 @@ function setvalue!(
     # that methods are strictly local to the scope that they are defined in. I'm
     # not sure if this is OK; we might need to change it later.
 end
+
+##################
+# Runtime errors #
+##################
 
 abstract type LoxEvalError <: LoxError end
 
@@ -167,30 +307,31 @@ struct LoxReturn{T} <: LoxEvalError
     value::T
 end
 
-"""
-    lox_eval(::LoxExpr, ::LoxEnvironment)
+##############
+# Evaluation #
+##############
 
-Evaluate an expression. Note that these return Julia types rather than Lox types (so when we
-throw mismatched type errors, for example, the error message refers to Julia types...!) This
-could definitely be improved. The only exception to this is LoxNil, which is the
-representation of Lox's `nil` value.
 """
-lox_eval(lit::Parser.LoxLiteral{<:Number}, ::LoxEnvironment) = lit.value
-lox_eval(lit::Parser.LoxLiteral{<:Bool}, ::LoxEnvironment) = lit.value
-lox_eval(lit::Parser.LoxLiteral{<:String}, ::LoxEnvironment) = lit.value
+    lox_eval(::LoxExpr, ::LoxEnvironment)::AbstractLoxValue
+
+Evaluate an expression.
+"""
+lox_eval(lit::Parser.LoxLiteral{<:Number}, ::LoxEnvironment) = LoxNumber(lit.value)
+lox_eval(lit::Parser.LoxLiteral{<:Bool}, ::LoxEnvironment) = LoxBoolean(lit.value)
+lox_eval(lit::Parser.LoxLiteral{<:String}, ::LoxEnvironment) = LoxString(lit.value)
 lox_eval(::Parser.LoxLiteral{Nothing}, ::LoxEnvironment) = LoxNil()
 lox_eval(var::Parser.LoxVariable, env::LoxEnvironment) = getvalue(env, var)
 lox_eval(grp::Parser.LoxGrouping, env::LoxEnvironment) = lox_eval(grp.expression, env)
 function lox_eval(expr::Parser.LoxFunExpr, env::LoxEnvironment)
-    f = LoxFunction(expr, env)
+    f = LoxMethod(expr, env)
     arity = length(expr.parameters)
     return MethodTable("<anonymous>", Dict(arity => f))
 end
 function lox_eval(expr::Parser.LoxUnary{Parser.Bang}, env::LoxEnvironment)
-    return !(lox_truthy(lox_eval(expr.right, env)))
+    return lox_bang(expr, lox_truthy(lox_eval(expr.right, env)))
 end
 function lox_eval(expr::Parser.LoxUnary{Parser.MinusUnary}, env::LoxEnvironment)
-    return -_lox_eval_expect_f64(expr.right, env)
+    return lox_unary_negate(expr, lox_eval(expr.right, env))
 end
 
 function lox_eval(expr::Parser.LoxAssignment, env::LoxEnvironment)
@@ -199,10 +340,9 @@ function lox_eval(expr::Parser.LoxAssignment, env::LoxEnvironment)
     return rvalue
 end
 
-# Lox: == and != are defined on all types
 function lox_eval(expr::Parser.LoxBinary{Parser.Or}, env::LoxEnvironment)
     left_val = lox_eval(expr.left, env)
-    if lox_truthy(left_val)
+    if lox_truthy(left_val).value
         return left_val
     else
         return lox_eval(expr.right, env)
@@ -210,53 +350,36 @@ function lox_eval(expr::Parser.LoxBinary{Parser.Or}, env::LoxEnvironment)
 end
 function lox_eval(expr::Parser.LoxBinary{Parser.And}, env::LoxEnvironment)
     left_val = lox_eval(expr.left, env)
-    if !lox_truthy(left_val)
+    if lox_bang(expr, lox_truthy(left_val)).value
         return left_val
     else
         return lox_eval(expr.right, env)
     end
 end
 lox_eval(expr::Parser.LoxBinary{Parser.EqualEqual}, env::LoxEnvironment) =
-    lox_eval(expr.left, env) == lox_eval(expr.right, env)
+    lox_eq(expr, lox_eval(expr.left, env), lox_eval(expr.right, env))
 lox_eval(expr::Parser.LoxBinary{Parser.BangEqual}, env::LoxEnvironment) =
-    lox_eval(expr.left, env) != lox_eval(expr.right, env)
-# Lox: < <= > >= - * / are only defined on numbers
+    lox_neq(expr, lox_eval(expr.left, env), lox_eval(expr.right, env))
 lox_eval(expr::Parser.LoxBinary{Parser.LessThan}, env::LoxEnvironment) =
-    _lox_eval_expect_f64(expr.left, env) < _lox_eval_expect_f64(expr.right, env)
+    lox_lt(expr, lox_eval(expr.left, env), lox_eval(expr.right, env))
 lox_eval(expr::Parser.LoxBinary{Parser.LessThanEqual}, env::LoxEnvironment) =
-    _lox_eval_expect_f64(expr.left, env) <= _lox_eval_expect_f64(expr.right, env)
+    lox_le(expr, lox_eval(expr.left, env), lox_eval(expr.right, env))
 lox_eval(expr::Parser.LoxBinary{Parser.GreaterThan}, env::LoxEnvironment) =
-    _lox_eval_expect_f64(expr.left, env) > _lox_eval_expect_f64(expr.right, env)
+    lox_gt(expr, lox_eval(expr.left, env), lox_eval(expr.right, env))
 lox_eval(expr::Parser.LoxBinary{Parser.GreaterThanEqual}, env::LoxEnvironment) =
-    _lox_eval_expect_f64(expr.left, env) >= _lox_eval_expect_f64(expr.right, env)
+    lox_ge(expr, lox_eval(expr.left, env), lox_eval(expr.right, env))
 lox_eval(expr::Parser.LoxBinary{Parser.Subtract}, env::LoxEnvironment) =
-    _lox_eval_expect_f64(expr.left, env) - _lox_eval_expect_f64(expr.right, env)
+    lox_sub(expr, lox_eval(expr.left, env), lox_eval(expr.right, env))
 lox_eval(expr::Parser.LoxBinary{Parser.Multiply}, env::LoxEnvironment) =
-    _lox_eval_expect_f64(expr.left, env) * _lox_eval_expect_f64(expr.right, env)
+    lox_mul(expr, lox_eval(expr.left, env), lox_eval(expr.right, env))
 function lox_eval(expr::Parser.LoxBinary{Parser.Divide}, env::LoxEnvironment)
     # Have to evaluate them first to handle order of side effects
-    left = _lox_eval_expect_f64(expr.left, env)
-    right = _lox_eval_expect_f64(expr.right, env)
-    iszero(right) && throw(LoxZeroDivisionError(expr))
-    return left / right
-end
-# Lox: + works on both numbers and strings
-function lox_eval(expr::Parser.LoxBinary{Parser.Add}, env::LoxEnvironment)
     left = lox_eval(expr.left, env)
     right = lox_eval(expr.right, env)
-    if left isa Float64 && right isa Float64
-        return left + right
-    elseif left isa String && right isa String
-        return left * right
-    else
-        throw(
-            LoxTypeError(
-                expr,
-                "cannot add values of types $(typeof(left)) and $(typeof(right))",
-            ),
-        )
-    end
+    return lox_div(expr, left, right)
 end
+lox_eval(expr::Parser.LoxBinary{Parser.Add}, env::LoxEnvironment) =
+    lox_add(expr, lox_eval(expr.left, env), lox_eval(expr.right, env))
 function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
     callee = lox_eval(expr.callee, env)
     nargs = length(expr.arguments)
@@ -281,7 +404,6 @@ function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
                     rethrow()
                 end
             end
-            # TODO: handle return values.
         else
             throw(
                 LoxTypeError(
@@ -294,35 +416,11 @@ function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
         throw(
             LoxTypeError(
                 expr.callee,
-                "attempted to call a non-function value of type $(typeof(callee))",
+                "attempted to call a non-function value of type $(lox_repr_type(callee))",
             ),
         )
     end
 end
-
-
-"""
-    _lox_eval_expect_f64(expr::LoxExpr, env::LoxEnvironment)
-
-Evaluate an expression and expect it to return a `Float64`. If the expression does not, throw a LoxTypeError.
-"""
-function _lox_eval_expect_f64(expr::Parser.LoxExpr, env::LoxEnvironment)
-    # TODO: This leads to very uninformative error messages. Fix this by checking 
-    # the type at a higher level instead.
-    val = lox_eval(expr, env)
-    val isa Float64 || throw(LoxTypeError(expr, "expected float, got $(typeof(val))"))
-    return val
-end
-
-"""
-    lox_truthy(value)
-
-Check if a value is "truthy" in Lox. In Lox, `false` and `nil` are falsy, while
-everything else is truthy.
-"""
-lox_truthy(::LoxNil) = false
-lox_truthy(value::Bool) = value
-lox_truthy(::Any) = true
 
 """
     lox_exec(stmt_or_prg, env::LoxEnvironment)::LoxEnvironment
@@ -339,7 +437,7 @@ function lox_exec(stmt::Parser.LoxVarDeclaration{<:Parser.LoxExpr}, env::LoxEnvi
     return env
 end
 function lox_exec(decl::Parser.LoxFunDeclaration, env::LoxEnvironment)
-    setvalue!(env, decl.name, LoxFunction(decl, env), true)
+    define_method!(env, decl.name, LoxMethod(decl, env), true)
     return env
 end
 function lox_exec(stmt::Parser.LoxExprStatement, env::LoxEnvironment)
@@ -352,17 +450,12 @@ function lox_exec(stmt::Parser.LoxReturnStatement, env::LoxEnvironment)
 end
 function lox_exec(stmt::Parser.LoxPrintStatement, env::LoxEnvironment)
     value = lox_eval(stmt.expression, env)
-    if value isa LoxNil
-        # Can't figure out how to override show or print for this...
-        println("nil")
-    else
-        println(value)
-    end
+    println(lox_show(value))
     return env
 end
 function lox_exec(stmt::Parser.LoxIfStatement, env::LoxEnvironment)
     condition = lox_eval(stmt.condition, env)
-    if lox_truthy(condition)
+    if lox_truthy(condition).value
         lox_exec(stmt.then_branch, env)
     else
         if stmt.else_branch !== nothing
@@ -372,7 +465,7 @@ function lox_exec(stmt::Parser.LoxIfStatement, env::LoxEnvironment)
     return env
 end
 function lox_exec(stmt::Parser.LoxWhileStatement, env::LoxEnvironment)
-    while lox_truthy(lox_eval(stmt.condition, env))
+    while lox_truthy(lox_eval(stmt.condition, env)).value
         lox_exec(stmt.body, env)
     end
     return env
