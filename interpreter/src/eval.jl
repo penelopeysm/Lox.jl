@@ -73,12 +73,21 @@ end
 
 struct LoxNil end
 
-struct LoxFunction
-    declaration::Parser.LoxFunDeclaration
+struct LoxFunction{T<:Union{Parser.LoxVariable,Nothing}}
+    # nothing if it's an anonymous function
+    name::T
+    parameters::Vector{Parser.LoxVariable}
+    body::Parser.LoxBlockStatement
     # Capture the environment where the function was defined
     env::LoxEnvironment
+
+    LoxFunction(decl::Parser.LoxFunDeclaration, env::LoxEnvironment) =
+        new{typeof(decl.name)}(decl.name, decl.parameters, decl.body, env)
+    LoxFunction(expr::Parser.LoxFunExpr, env::LoxEnvironment) =
+        new{Nothing}(nothing, expr.parameters, expr.body, env)
 end
-Base.show(io::IO, f::LoxFunction) = print(io, "<Lox function $(f.declaration.name.identifier)>")
+Base.show(io::IO, f::LoxFunction{<:Parser.LoxVariable}) = print(io, "<Lox function $(f.name.identifier)>")
+Base.show(io::IO, ::LoxFunction{Nothing}) = print(io, "<Lox anonymous function>")
 
 struct MethodTable
     func_name::String
@@ -92,7 +101,7 @@ function setvalue!(
     ::Bool,
 )
     fname = var.identifier
-    arity = length(value.declaration.parameters)
+    arity = length(value.parameters)
     if haskey(env.vars, var.identifier)
         mt = env.vars[var.identifier]
         if mt isa MethodTable
@@ -172,6 +181,11 @@ lox_eval(lit::Parser.LoxLiteral{<:String}, ::LoxEnvironment) = lit.value
 lox_eval(::Parser.LoxLiteral{Nothing}, ::LoxEnvironment) = LoxNil()
 lox_eval(var::Parser.LoxVariable, env::LoxEnvironment) = getvalue(env, var)
 lox_eval(grp::Parser.LoxGrouping, env::LoxEnvironment) = lox_eval(grp.expression, env)
+function lox_eval(expr::Parser.LoxFunExpr, env::LoxEnvironment)
+    f = LoxFunction(expr, env)
+    arity = length(expr.parameters)
+    return MethodTable("<anonymous>", Dict(arity => f))
+end
 function lox_eval(expr::Parser.LoxUnary{Parser.Bang}, env::LoxEnvironment)
     return !(lox_truthy(lox_eval(expr.right, env)))
 end
@@ -253,12 +267,12 @@ function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
             # Regenerate the function's original environment (but create an inner
             # one for the function call itself)
             new_env = LoxEnvironment(func.env, Dict{String,Any}())
-            for (param, arg_value) in zip(func.declaration.parameters, arg_values)
+            for (param, arg_value) in zip(func.parameters, arg_values)
                 setvalue!(new_env, param, arg_value, true)
             end
             # Then execute the function
             try
-                lox_exec(func.declaration.body, new_env)
+                lox_exec(func.body, new_env)
             catch e
                 if e isa LoxReturn
                     return e.value
@@ -286,12 +300,6 @@ function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
     end
 end
 
-
-# struct LoxCall{Tex<:LoxExpr} <: LoxExpr
-#     callee::Tex
-#     arguments::Vector{LoxExpr}
-#     right_paren_end_offset::Int
-# end
 
 """
     _lox_eval_expect_f64(expr::LoxExpr, env::LoxEnvironment)

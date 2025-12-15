@@ -43,8 +43,19 @@ function _resolve!(fun::P.LoxFunDeclaration, scope::LoxScope, ::Nothing)
     end
     _resolve!(fun.body, child_scope, nothing)
 end
-function _resolve!(var::P.LoxVariable, scope::LoxScope, initializing::Union{String,Nothing})
-    if var.identifier == initializing
+function _resolve!(fun::P.LoxFunExpr, scope::LoxScope, ::Union{String,Nothing})
+    # Even if we are currently defining a new variable, e.g. with
+    #     var f = fun (a) { ...};
+    # it's OK that we reference `f` inside the function body. Hence, even if this
+    # method is called with forbidden != nothing, we just ignore it.
+    child_scope = LoxScope(Set{String}(), scope)
+    for param in fun.parameters
+        push!(child_scope.variables, param.identifier)
+    end
+    _resolve!(fun.body, child_scope, nothing)
+end
+function _resolve!(var::P.LoxVariable, scope::LoxScope, initialising::Union{String,Nothing})
+    if var.identifier == initialising
         throw(LoxSelfReferentialInitialisationError(var))
     end
     current_scope = scope

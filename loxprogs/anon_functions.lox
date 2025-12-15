@@ -1,0 +1,12 @@
+fun apply(f) {
+    return fun(x) { return f(x); };
+}
+
+fun inc(x) {
+    return x + 1;
+}
+
+print apply(inc)(0);  // should print 1.0
+
+// also declare and call them right away
+print (fun(x) { return x + 1; })(1); // should print 2.0

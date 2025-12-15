@@ -164,6 +164,16 @@ children(decl::LoxFunDeclaration) = [decl.name, decl.parameters, decl.body]
 
 #### More exprs
 
+# Anonymous functions
+struct LoxFunExpr <: LoxExpr
+    parameters::Vector{LoxVariable}
+    fun_start_offset::Int
+    body::LoxBlockStatement
+end
+start_offset(fun::LoxFunExpr) = fun.fun_start_offset
+end_offset(fun::LoxFunExpr) = end_offset(fun.body)
+children(fun::LoxFunExpr) = [fun.parameters, fun.body]
+
 # Indeed, we're very quickly reaching the point where we want GADTs...
 abstract type LoxBinaryOp end
 # NOTE: This requires that all subtypes of LoxBinaryOp have a field `ltoken`
@@ -312,7 +322,7 @@ to_sexp_op(op::And) = "and"
 to_sexp_op(op::Or) = "or"
 to_sexp(stmt::LoxPrintStatement) = "(print " * to_sexp(stmt.expression) * ")"
 to_sexp(stmt::LoxReturnStatement) = "(return " * to_sexp(stmt.expression) * ")"
-to_sexp(stmt::LoxStatement) = "(stmt " * to_sexp(stmt.expression) * ")"
+to_sexp(stmt::LoxExprStatement) = "(stmt " * to_sexp(stmt.expression) * ")"
 to_sexp(var_decl::LoxVarDeclaration{Nothing}) = "(decl " * to_sexp(var_decl.variable) * ")"
 to_sexp(var_decl::LoxVarDeclaration{Tex}) where {Tex} =
     "(decl " * to_sexp(var_decl.variable) * " = " * to_sexp(var_decl.initial_expr) * ")"
@@ -337,6 +347,14 @@ to_sexp(fun_decl::LoxFunDeclaration) =
     ")"
 to_sexp(stmt::LoxWhileStatement) =
     "(while " * to_sexp(stmt.condition) * " " * to_sexp(stmt.body) * ")"
+to_sexp(expr::LoxFunExpr) =
+    "(anon_fun (" *
+    (length(expr.parameters) == 0
+     ? ""
+     : join(map(to_sexp, expr.parameters), " ")) *
+    ") " *
+    to_sexp(expr.body) *
+    ")"
 to_sexp(prg::LoxProgramme) = join(map(to_sexp, prg.statements), "\n")
 
 ### The parser state
@@ -373,7 +391,7 @@ function consume_or_error!(
     if next_ltoken.token isa expected_token
         return consume_next!(s)
     else
-        throw(LoxParseError(next_ltoken.end_offset, errmsg))
+        throw(LoxParseError(s.tokens[s.tokens_read].end_offset, errmsg))
     end
 end
 
@@ -516,7 +534,9 @@ end
 function primary!(s::ParserState)::LoxExpr
     next_ltoken = peek_next(s)
     next_token = next_ltoken.token
-    if (
+    if next_token isa Lexer.Fun
+        return fun_expression!(s)
+    elseif (
         next_token isa Lexer.False ||
         next_token isa Lexer.True ||
         next_token isa Lexer.Nil ||
@@ -540,6 +560,31 @@ function primary!(s::ParserState)::LoxExpr
         # parse failure
         throw(LoxParseError(next_ltoken.end_offset, "Parse error: " * string(next_token)))
     end
+end
+
+function fun_expression!(s::ParserState)::LoxFunExpr
+    fun_ltoken = consume_or_error!(s, Lexer.Fun, "unreachable: fun_expression! called without fun token")
+    # parameters
+    consume_or_error!(s, Lexer.LeftParen, "expected '(' after function name")
+    params = LoxVariable[]
+    # handle empty parameter list
+    if peek_next_unlocated(s) isa Lexer.RightParen
+        consume_next!(s) # right paren
+    else
+        while true
+            param_ltoken = consume_or_error!(s, Lexer.Identifier, "expected parameter name")
+            push!(params, LoxVariable(param_ltoken))
+            if peek_next_unlocated(s) isa Lexer.Comma
+                consume_next!(s) # comma
+            else
+                consume_or_error!(s, Lexer.RightParen, "expected ')' after function parameters")
+                break
+            end
+        end
+    end
+    # function body
+    block = block_statement!(s)
+    return LoxFunExpr(params, fun_ltoken.start_offset, block)
 end
 
 """
@@ -597,11 +642,12 @@ function var_declaration!(s::ParserState)::LoxVarDeclaration
 end
 
 function fun_declaration!(s::ParserState)::LoxFunDeclaration
-    # consume the 'var' token
+    # consume the 'fun' token
     fun_ltoken = consume_or_error!(s, Lexer.Fun, "unreachable: fun_declaration! called without fun token")
     fun_start_offset = fun_ltoken.start_offset
-    # get function name
-    next_ltoken = consume_or_error!(s, Lexer.Identifier, "Expected function name after 'fun'")
+    # get function name (note that the presence of this is also checked before this function
+    # is called, so this should never fail)
+    next_ltoken = consume_or_error!(s, Lexer.Identifier, "unreachable: fun_declaration! called without function name")
     function_name = LoxVariable(next_ltoken)
     # parameters
     consume_or_error!(s, Lexer.LeftParen, "expected '(' after function name")
@@ -631,7 +677,14 @@ function declaration!(s::ParserState)::LoxDeclaration
     return if next_token isa Lexer.Var
         var_declaration!(s)
     elseif next_token isa Lexer.Fun
-        fun_declaration!(s)
+        next_next_token = s.tokens[s.tokens_read+2].token
+        if next_next_token isa Lexer.Identifier
+            fun_declaration!(s)
+        else
+            # this branch handles things like `fun (x) {...};` which are not declarations
+            # but rather an expression statement with an anonymous function.
+            statement!(s)
+        end
     else
         statement!(s)
     end

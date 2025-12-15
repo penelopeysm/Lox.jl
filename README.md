@@ -37,6 +37,8 @@ using LoxInterpreter; run_file("path/to/lox_file.lox")
 
 The interpreter contains several differences from the book (mainly because I wanted to experiment with extra features).
 
+- Anonymous functions are implemented (this is a challenge question in the book).
+
 - The magic variable `__scope__` returns a Julia dictionary of anything that's in scope. Since it's a Julia value, you can't actually do anything with it in Lox (except print it). This is mainly for debugging purposes, but if Lox had its own dictionaries, then this would play a similar role to Julia's `Base.@locals`.
 
 ```
