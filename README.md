@@ -64,6 +64,25 @@ lox> fun foo(a) { print a; }
 6.0
 ```
 
+- There are lists. Lists are heterogeneous and immutable. There is no special syntax to create them, but you can create a list with `vec(args...)`, which is a native function. There are some other builtin functions for lists, like `length()`. A string can be split into a list of single-character strings with `chars(str)`.
+
+```
+lox> var xs = vec("a", "b", "c");
+     print xs;
+
+list<a,b,c>
+```
+
+- You can parse strings into numbers. Look, I just want to be able to do Advent of Code day 1 in my language.
+
+```
+lox> print to_number("1") + to_number("2");
+
+3.0
+```
+
+- You can `import(filename)` to execute the contents of that file. There is a prelude in the `interpreter` folder, which you can use to make life a bit easier.
+
 - There is quite a fair bit of nice pretty-printing for errors!
 
 ```

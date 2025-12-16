@@ -893,13 +893,14 @@ function programme!(s::ParserState)::LoxProgramme
                 push!(decls, decl)
             catch e
                 if e isa LoxParseError
+                    add_error!(s, e)
                     synchronise!(s)
-                    if peek_next_unlocated(s) isa Lexer.Eof
-                        # Attempted to synchronise, but reached EOF, i.e. there
-                        # wasn't a meaningful place to resume parsing from
-                        add_error!(s, e)
-                    else
+                    # If we haven't reached EOF, we can try to continue parsing
+                    if !(peek_next_unlocated(s) isa Lexer.Eof)
                         continue
+                    else
+                        consume_next!(s) # consume the EOF
+                        break
                     end
                 else
                     rethrow(e)

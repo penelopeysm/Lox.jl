@@ -110,7 +110,7 @@ end
     run(
         source::AbstractString,
         start_loc::Errors.Location,
-        debug::Bool
+        debug::Bool,
         env::LoxEnvironment=Eval.setup_global_environment(),
     )::Union{LoxEnvironment,LoxError}
 

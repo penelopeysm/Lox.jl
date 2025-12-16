@@ -1,5 +1,6 @@
 module Eval
 
+using ..Lexer: Lexer
 using ..Errors: Errors, LoxError, Location
 using ..Parser: Parser
 using ..SemanticAnalysis: SemanticAnalysis
@@ -262,6 +263,8 @@ struct NativeMethod{F} <: AbstractMethod
     julia_fun::F
 end
 
+struct LoxImport <: AbstractMethod end
+
 struct Arity{T<:Union{Int,Nothing}}
     min::Int
     max::T
@@ -282,7 +285,7 @@ struct MethodTable <: AbstractLoxValue
     methods::Dict{Arity,AbstractMethod} # keys are arity
 end
 lox_repr_type(::MethodTable) = "methodtable"
-lox_show(mt::MethodTable) = "<Lox method table for $mt.func_name with arities: $(collect(keys(mt.methods)))>"
+lox_show(mt::MethodTable) = "<Lox method table for $(mt.func_name) with arities [$(join(map(show_arity, collect(keys(mt.methods))), ", "))]>"
 function define_method!(
     env::LoxEnvironment,
     var::Parser.LoxVariable,
@@ -322,7 +325,7 @@ function define_method!(
     env::LoxEnvironment,
     fname::String,
     arity::Arity,
-    value::NativeMethod,
+    value::Union{NativeMethod,LoxImport},
 )
     if haskey(env.vars, fname)
         mt = env.vars[fname]
@@ -506,9 +509,9 @@ function lox_eval(expr::Parser.LoxBinary{Parser.Divide}, env::LoxEnvironment)
 end
 lox_eval(expr::Parser.LoxBinary{Parser.Add}, env::LoxEnvironment) =
     lox_add(expr, lox_eval(expr.left, env), lox_eval(expr.right, env))
-function _lox_invoke(func::LoxMethod, arg_values::Vector{<:AbstractLoxValue})
+function _lox_invoke(::Parser.LoxExpr, ::LoxEnvironment, func::LoxMethod, arg_values::Vector{<:AbstractLoxValue})
     # Regenerate the function's original environment (but create an inner
-    # one for the function call itself)
+    # one for the function call itself).
     new_env = LoxEnvironment(func.env, Dict{String,Any}())
     for (param, arg_value) in zip(func.parameters, arg_values)
         setvalue!(new_env, param, arg_value, true)
@@ -524,7 +527,7 @@ function _lox_invoke(func::LoxMethod, arg_values::Vector{<:AbstractLoxValue})
         end
     end
 end
-function _lox_invoke(func::NativeMethod, arg_values::Vector{<:AbstractLoxValue})
+function _lox_invoke(expr::Parser.LoxExpr, ::LoxEnvironment, func::NativeMethod, arg_values::Vector{<:AbstractLoxValue})
     try
         return func.julia_fun(arg_values...)
     catch e
@@ -538,6 +541,36 @@ function _lox_invoke(func::NativeMethod, arg_values::Vector{<:AbstractLoxValue})
         end
     end
 end
+function _lox_invoke(expr::Parser.LoxExpr, env::LoxEnvironment, func::LoxImport, arg_values::Vector{<:AbstractLoxValue})
+    length(arg_values) == 1 || throw(
+        LoxTypeError(
+            expr,
+            "import function expects exactly 1 argument, got $(length(arg_values))",
+        ),
+    )
+    fname_val = only(arg_values)
+    fname_val isa LoxString || throw(
+        LoxTypeError(
+            expr,
+            "import function expects a string filename, got value of type $(lox_repr_type(fname_val))",
+        ),
+    )
+    fname = fname_val.value
+    # Read the file
+    file_contents = read(fname, String)
+    # Lex, parse, and execute it in the environment
+    tokens, lex_errors = Lexer.lex(file_contents)
+    if !isempty(lex_errors)
+        throw(LoxImportError(expr, "lexing failed on file $(fname)"))
+    end
+    prg, parse_errors = Parser.parse(tokens)
+    if !isempty(parse_errors)
+        throw(LoxImportError(expr, "parsing failed on file $(fname)"))
+    end
+    SemanticAnalysis.resolve_variables!(prg)
+    lox_exec(prg, env)
+    return LoxNil()
+end
 function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
     callee = lox_eval(expr.callee, env)
     nargs = length(expr.arguments)
@@ -546,7 +579,7 @@ function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
             arg_values = map(Base.Fix2(lox_eval, env), expr.arguments)
             # the above infers as Vector{Any}, so we have to convert :(
             arg_values = convert(Vector{AbstractLoxValue}, arg_values)
-            _lox_invoke(func, arg_values)
+            _lox_invoke(expr, env, func, arg_values)
     else
         throw(
             LoxTypeError(
@@ -667,6 +700,9 @@ function setup_global_environment()
         end
     end
     define_method!(env, "to_number", Arity(1, 1), NativeMethod(lox_to_number))
+
+    # import
+    define_method!(env, "import", Arity(1, 1), LoxImport())
 
     return env
 end
