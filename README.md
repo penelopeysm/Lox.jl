@@ -54,14 +54,6 @@ The interpreter contains several differences from the book (mainly because I wan
   World
   ```
 
-- The magic variable `__scope__` returns a Julia dictionary of anything that's in scope. Since it's a Julia value, you can't actually do anything with it in Lox (except print it). This is mainly for debugging purposes, but if Lox had its own dictionaries, then this would play a similar role to Julia's `Base.@locals`.
-
-  ```
-  lox> var x = 1; print __scope__;
-  
-  Dict{String, Any}("x" => 1.0)
-  ```
-
 - Methods with different arities can be defined for the same function (i.e. function overloading based on number of arguments). This is similar to C++ function overloading, but only for arity (not types... yet?).
 
   ```
