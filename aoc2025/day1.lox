@@ -1,0 +1,91 @@
+import("prelude.lox");
+
+var input = split(readfile("input1.txt"), "\n");
+
+var n = length(input);
+
+fun divides_100(i) {
+    // I don't have a modulo operator :(
+    if (i == 0) {
+        return true;
+    } else if (i < 0) {
+        while (i < 0) {
+            i = i + 100;
+            if (i == 0) {
+                return true;
+            }
+        }
+        return false;
+    } else if (i > 0) {
+        while (i > 0) {
+            i = i - 100;
+            if (i == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+// Part 1
+
+var position = 50;
+var ans = 0;
+
+for (var i = 0; i < n; i = i + 1) {
+    var s = at(input, i);
+    if (strlen(s) > 0) {
+        var direction = at(chars(s), 0);
+        var magnitude = to_number(strslice(s, 1, strlen(s)));
+        if (direction == "L") {
+            position = position - magnitude;
+        } else if (direction == "R") {
+            position = position + magnitude;
+        }
+        if (divides_100(position)) ans = ans + 1;
+    }
+}
+print ans;
+
+
+// Part 2
+
+// returns the wrapped value, plus how many rotations were needed to get it to there
+fun wrap_to_0to99(i, count) {
+    if (i >= 0 and i <= 99) {
+        return vec(i, count);
+    } else if (i < 0) {
+        return wrap_to_0to99(i + 100, count + 1);
+    } else if (i > 0) {
+        return wrap_to_0to99(i - 100, count + 1);
+    }
+}
+
+var p2_position = 50;
+var p2_ans = 0;
+
+for (var i = 0; i < n; i = i + 1) {
+    var s = at(input, i);
+    if (strlen(s) > 0) {
+        var direction = at(chars(s), 0);
+        var magnitude = to_number(strslice(s, 1, strlen(s)));
+        if (direction == "L") {
+            var pos_and_count = wrap_to_0to99(p2_position - magnitude, p2_ans);
+            var new_position = at(pos_and_count, 0);
+            p2_ans = at(pos_and_count, 1);
+            if (p2_position == 0 and new_position != 0) {
+                p2_ans = p2_ans - 1;
+            }
+            if (p2_position != 0 and new_position == 0) {
+                p2_ans = p2_ans + 1;
+            }
+            p2_position = new_position;
+        } else if (direction == "R") {
+            var pos_and_count = wrap_to_0to99(p2_position + magnitude, p2_ans);
+            var new_position = at(pos_and_count, 0);
+            p2_ans = at(pos_and_count, 1);
+            p2_position = new_position;
+        }
+    }
+}
+print p2_ans;

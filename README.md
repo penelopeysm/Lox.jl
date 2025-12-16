@@ -82,7 +82,13 @@ The interpreter contains several differences from the book (mainly because I wan
   3.0
   ```
 
-- You can `import(filename)` to execute the contents of that file. There is a prelude in the `interpreter` folder, which you can use to make life a bit easier.
+- You can `import(filename);` to execute the contents of that file. I would prefer to make `import` a statement, but I'm too lazy to twiddle with the lexer and parser (for now). There is a prelude in the `aoc2025` folder, which you can use to make life a bit easier.
+
+  ```
+  lox> import("prelude.lox"); print split("Mississippi", "s");
+
+  list<Mi,,i,,ippi>
+  ```
 
 - There is quite a fair bit of nice pretty-printing for errors!
 

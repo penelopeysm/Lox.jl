@@ -672,6 +672,11 @@ function setup_global_environment()
     function lox_length(lst::LoxList)
         return LoxNumber(length(lst.elements))
     end
+    function lox_length(x::AbstractLoxValue)
+        # TODO: we could technically define length for strings too, instead of defining it
+        # in the prelude
+        throw(InsideLoxNativeMethodError("`length(s)` not defined for value `s` of type $(lox_repr_type(x))"))
+    end
     define_method!(env, "length", Arity(1, 1), NativeMethod(lox_length))
 
     # at
@@ -682,11 +687,17 @@ function setup_global_environment()
         end
         return lst.elements[idx + 1] # YES, FREEDOM FROM JULIA'S 1-INDEXING
     end
+    function lox_at(x::AbstractLoxValue, ::LoxNumber)
+        throw(InsideLoxNativeMethodError("`at(s, i)` not defined for value `s` of type $(lox_repr_type(x))"))
+    end
     define_method!(env, "at", Arity(2, 2), NativeMethod(lox_at))
 
     # chars
     function lox_chars(s::LoxString)
         return LoxList([LoxString(string(c)) for c in collect(s.value)])
+    end
+    function lox_chars(x::AbstractLoxValue)
+        throw(InsideLoxNativeMethodError("`chars(s)` not defined for value `s` of type $(lox_repr_type(x))"))
     end
     define_method!(env, "chars", Arity(1, 1), NativeMethod(lox_chars))
 
