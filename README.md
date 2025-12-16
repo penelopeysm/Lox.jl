@@ -39,55 +39,64 @@ The interpreter contains several differences from the book (mainly because I wan
 
 - Anonymous functions are implemented (this is a challenge question in the book).
 
-```
-lox> print (fun (x) { return x + 1; })(2);
+  ```
+  lox> print (fun (x) { return x + 1; })(2);
+  
+  3.0
+  ```
 
-3.0
-```
+- Some escape sequences are implemented (`\n`, `\t`, `\\`, `\"`).
+
+  ```
+  lox> print "Hello\nWorld";
+  
+  Hello
+  World
+  ```
 
 - The magic variable `__scope__` returns a Julia dictionary of anything that's in scope. Since it's a Julia value, you can't actually do anything with it in Lox (except print it). This is mainly for debugging purposes, but if Lox had its own dictionaries, then this would play a similar role to Julia's `Base.@locals`.
 
-```
-lox> var x = 1; print __scope__;
-
-Dict{String, Any}("x" => 1.0)
-```
+  ```
+  lox> var x = 1; print __scope__;
+  
+  Dict{String, Any}("x" => 1.0)
+  ```
 
 - Methods with different arities can be defined for the same function (i.e. function overloading based on number of arguments). This is similar to C++ function overloading, but only for arity (not types... yet?).
 
-```
-lox> fun foo(a) { print a; }
-     fun foo(a, b) { print a * b; }
-     foo(1); foo(2, 3);
-
-1.0
-6.0
-```
+  ```
+  lox> fun foo(a) { print a; }
+       fun foo(a, b) { print a * b; }
+       foo(1); foo(2, 3);
+  
+  1.0
+  6.0
+  ```
 
 - There are lists. Lists are heterogeneous and immutable. There is no special syntax to create them, but you can create a list with `vec(args...)`, which is a native function. There are some other builtin functions for lists, like `length()`. A string can be split into a list of single-character strings with `chars(str)`.
 
-```
-lox> var xs = vec("a", "b", "c");
-     print xs;
-
-list<a,b,c>
-```
+  ```
+  lox> var xs = vec("a", "b", "c");
+       print xs;
+  
+  list<a,b,c>
+  ```
 
 - You can parse strings into numbers. Look, I just want to be able to do Advent of Code day 1 in my language.
 
-```
-lox> print to_number("1") + to_number("2");
-
-3.0
-```
+  ```
+  lox> print to_number("1") + to_number("2");
+  
+  3.0
+  ```
 
 - You can `import(filename)` to execute the contents of that file. There is a prelude in the `interpreter` folder, which you can use to make life a bit easier.
 
 - There is quite a fair bit of nice pretty-printing for errors!
 
-```
-$ cd interpreter; julia --project=. interpreter.jl ../loxprogs/dividezero.lox
-error @ ../loxprogs/dividezero.lox:5:9
-    var z = hello / world;
-            ^^^^^^^^^^^^^ division by zero
-```
+  ```
+  $ cd interpreter; julia --project=. interpreter.jl ../loxprogs/dividezero.lox
+  error @ ../loxprogs/dividezero.lox:5:9
+      var z = hello / world;
+              ^^^^^^^^^^^^^ division by zero
+  ```
