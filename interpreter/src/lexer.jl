@@ -313,13 +313,35 @@ function read_next_token!(s::LexerState)::Nothing
         end
     elseif isspace(next_char) # whitespace is a no-op
     elseif next_char == '"'
-        # string literal
-        str = consume_until!(s, '"')
-        closing_quote = get_char!(s)
-        if closing_quote != '"'
-            throw(LoxLexError(s.position, "Unterminated string literal"))
+        str = ""
+        while true
+            next_char = get_char!(s)
+            if next_char == '"'
+                add_token!(s, LoxString(str), posn, length(str) + 2)
+                break
+            elseif next_char == '\\'
+                escaped_char = get_char!(s)
+                if isnothing(escaped_char)  # \ at end of file
+                    throw(LoxLexError(s.position, "Unterminated string literal"))
+                elseif escaped_char == 'n'
+                    str *= '\n'
+                elseif escaped_char == '"'
+                    str *= '"'
+                elseif escaped_char == 't'
+                    str *= '\t'
+                elseif escaped_char == '\\'
+                    str *= '\\'
+                else
+                    throw(LoxLexError(s.position, "Invalid escape sequence: \\$escaped_char"))
+                end
+            else
+                if isnothing(next_char)  # end of file
+                    throw(LoxLexError(s.position, "Unterminated string literal"))
+                else
+                    str *= next_char
+                end
+            end
         end
-        add_token!(s, LoxString(str), posn, length(str) + 2) # +2 for the quotes
     elseif isdigit(next_char)
         # number literal. grab the bit before the decimal point
         num = next_char * consume_while!(s, isdigit)
