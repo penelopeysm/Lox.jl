@@ -2,9 +2,7 @@
 
 [*Crafting Interpreters*](https://craftinginterpreters.com/), but in Julia.
 
-## `interpreter`
-
-The first half of the book (tree-walk interpreter).
+Specifically, this is the first half of the book (tree-walk interpreter).
 
 Run with
 
@@ -15,7 +13,7 @@ julia --project=. interpreter.jl [LOX_FILE]
 
 where `LOX_FILE` is a file containing Lox code, or leave it empty to enter the REPL.
 
-Some sample Lox programmes are given in the `loxprogs` folder.
+Some sample Lox programmes are given in the `loxprogs` and `aoc2025` folders.
 
 ## From inside Julia
 
@@ -98,3 +96,16 @@ The interpreter contains several differences from the book (mainly because I wan
       var z = hello / world;
               ^^^^^^^^^^^^^ division by zero
   ```
+
+## Would I recommend Julia for compiler work?
+
+No way, unfortunately.
+
+The main reason why I used Julia was because I thought I could use this as a project to understand Julia's standard library a bit better.
+But, unfortunately, Julia's TTFX is just simply way, way, way, too annoying to deal with, for an interpreter that has to be rerun multiple times during development.
+It would be a *much* more pleasant experience to use a language that has fast incremental compilation.
+Of the languages I've used before, I would probably consider OCaml or Rust.
+
+Correctness, which is a really important consideration for a compiler, is also much harder to achieve in julia because of its dynamic type system.
+
+I will say that Julia's multiple dispatch system does make for some nice code (as opposed to the book which uses the visitor pattern in Java).

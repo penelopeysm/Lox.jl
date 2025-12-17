@@ -1,0 +1,91 @@
+fun push(list, elem) {
+    return list + vec(elem);
+}
+
+fun slice(list, min, max) {
+    var out = vec();
+    for (var i = min; i < max; i = i + 1) {
+        out = out + vec(at(list, i));
+    }
+    return out;
+}
+
+fun join(delim, list_of_str) {
+    var n = length(list_of_str);
+    var s = "";
+    for (var i = 0; i < n; i = i + 1) {
+        s = s + at(list_of_str, i);
+        if (i < n - 1) {
+            s = s + delim;
+        }
+    }
+    return s;
+}
+
+fun strslice(str, min, max) {
+    return join("", slice(chars(str), min, max));
+}
+
+fun map(f, list) {
+    var out = vec();
+    for (var i = 0; i < length(list); i = i + 1) {
+        out = out + vec(f(at(list, i)));
+    }
+    return out;
+}
+
+fun filter(pred, list) {
+    var out = vec();
+    for (var i = 0; i < length(list); i = i + 1) {
+        xi = at(list, i);
+        if (pred(xi)) {
+            out = out + vec(xi);
+        }
+    }
+    return out;
+}
+
+fun foldr(combine, init, list) {
+    var n = length(list);
+    if (n == 0) {
+        return init;
+    } else {
+        var x = at(list, 0);
+        return combine(x, foldr(combine, init, slice(list, 1, n)));
+    }
+}
+
+fun foldl(combine, init, list) {
+    var n = length(list);
+    if (n == 0) {
+        return init;
+    } else {
+        var x = at(list, 0);
+        return foldl(combine, combine(init, x), slice(list, 1, n));
+    }
+}
+
+fun strlen(str) {
+    return length(chars(str));
+}
+
+fun split(str, delim) {
+    // NOTE: `delim` MUST be a single character string. It will give wrong
+    // results otherwise. I'm just too lazy to implement string matching
+    // algorithms.
+    var substrings = vec();
+    var current_substring = vec();
+    var cs = chars(str);
+    var delim0 = at(chars(delim), 0);
+    for (var i = 0; i < length(cs); i = i + 1) {
+        var ci = at(cs, i);
+        if (ci == delim0) {
+            substrings = push(substrings, join("", current_substring));
+            current_substring = vec();
+        } else {
+            current_substring = push(current_substring, ci);
+        }
+    }
+    substrings = push(substrings, join("", current_substring));
+    return substrings;
+}
