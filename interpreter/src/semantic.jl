@@ -37,16 +37,22 @@ function _resolve!(stmt::P.LoxVarDeclaration, scope::LoxScope, ::Nothing)
     push!(scope.variables, stmt.variable.identifier)
     _resolve!(stmt.initial_expr, scope, stmt.variable.identifier)
 end
-function _resolve!(fun::P.LoxFunDeclaration, scope::LoxScope, ::Nothing)
-    # TODO: if it's a class method, fun.name.identifier should not be added to the current
-    # scope, since methods are not variables in the outer scope.
+function _resolve!(fun::P.LoxFunDeclaration{P.LoxNamedFunction}, scope::LoxScope, ::Nothing)
     push!(scope.variables, fun.name.identifier)
     _resolve!(fun.name, scope, nothing)
-    child_scope = LoxScope(Set{String}(["this"]), scope)
+    param_scope = LoxScope(Set{String}(), scope)
     for param in fun.parameters
-        push!(child_scope.variables, param.identifier)
+        push!(param_scope.variables, param.identifier)
     end
-    _resolve!(fun.body, child_scope, nothing)
+    _resolve!(fun.body, param_scope, nothing)
+end
+function _resolve!(fun::P.LoxFunDeclaration{P.LoxClassMethod}, scope::LoxScope, ::Nothing)
+    this_scope = LoxScope(Set{String}(["this"]), scope)
+    param_scope = LoxScope(Set{String}(), this_scope)
+    for param in fun.parameters
+        push!(param_scope.variables, param.identifier)
+    end
+    _resolve!(fun.body, param_scope, nothing)
 end
 function _resolve!(cls::P.LoxClassDeclaration, scope::LoxScope, ::Nothing)
     push!(scope.variables, cls.name.identifier)

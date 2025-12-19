@@ -153,13 +153,19 @@ start_offset(stmt::LoxBlockStatement) = stmt.start_offset
 end_offset(stmt::LoxBlockStatement) = stmt.end_offset
 children(stmt::LoxBlockStatement) = stmt.statements
 
-struct LoxFunDeclaration <: LoxDeclaration
+abstract type LoxFunKind end
+struct LoxNamedFunction <: LoxFunKind end
+struct LoxClassMethod <: LoxFunKind end
+struct LoxAnonFunction <: LoxFunKind end # not used in parser, but in evaluation
+
+struct LoxFunDeclaration{K<:LoxFunKind} <: LoxDeclaration
     name::LoxVariable
     parameters::Vector{LoxVariable}
     # for a function, this is the start offset of the 'fun' keyword; or for a class method,
     # the start offset of the method name, since those aren't defined using `fun`
     start_offset::Int
     body::LoxBlockStatement
+    kind::K
 end
 start_offset(decl::LoxFunDeclaration) = decl.start_offset
 end_offset(decl::LoxFunDeclaration) = end_offset(decl.body)
@@ -169,7 +175,7 @@ struct LoxClassDeclaration <: LoxDeclaration
     name::LoxVariable
     class_start_offset::Int
     rbrace_end_offset::Int
-    methods::Vector{LoxFunDeclaration}
+    methods::Vector{LoxFunDeclaration{LoxClassMethod}}
 end
 start_offset(decl::LoxClassDeclaration) = decl.class_start_offset
 end_offset(decl::LoxClassDeclaration) = decl.rbrace_end_offset
@@ -692,7 +698,7 @@ function var_declaration!(s::ParserState)::LoxVarDeclaration
     end
 end
 
-function fun_declaration_no_fun!(s::ParserState)::LoxFunDeclaration
+function fun_declaration_no_fun!(s::ParserState)::Tuple{LoxVariable,Vector{LoxVariable},Int,LoxBlockStatement}
     # get function name (note that the presence of this is also checked before this function
     # is called, so this should never fail)
     next_ltoken = consume_or_error!(
@@ -725,23 +731,18 @@ function fun_declaration_no_fun!(s::ParserState)::LoxFunDeclaration
     end
     # function body
     block = block_statement!(s)
-    return LoxFunDeclaration(function_name, params, lparen.start_offset, block)
+    return function_name, params, lparen.start_offset, block
 end
 
-function fun_declaration!(s::ParserState)::LoxFunDeclaration
+function namedfun_declaration!(s::ParserState)::LoxFunDeclaration{LoxNamedFunction}
     # consume the 'fun' token
     fun_ltoken = consume_or_error!(
         s,
         Lexer.Fun,
         "unreachable: fun_declaration! called without fun token",
     )
-    no_fun_decl = fun_declaration_no_fun!(s)
-    return LoxFunDeclaration(
-        no_fun_decl.name,
-        no_fun_decl.parameters,
-        fun_ltoken.start_offset,
-        no_fun_decl.body,
-    )
+    name, params, _, body = fun_declaration_no_fun!(s)
+    return LoxFunDeclaration(name, params, fun_ltoken.start_offset, body, LoxNamedFunction())
 end
 
 function class_declaration!(s::ParserState)::LoxClassDeclaration
@@ -759,11 +760,13 @@ function class_declaration!(s::ParserState)::LoxClassDeclaration
     # lbrace
     consume_or_error!(s, Lexer.LeftBrace, "expected '{' before class body")
     # methods
-    methods = LoxFunDeclaration[]
+    methods = LoxFunDeclaration{LoxClassMethod}[]
     while !(
         peek_next_unlocated(s) isa Lexer.RightBrace || peek_next_unlocated(s) isa Lexer.Eof
     )
-        method_decl = fun_declaration_no_fun!(s)
+        name, params, _, body =
+            fun_declaration_no_fun!(s)
+        method_decl = LoxFunDeclaration(name, params, name.start_offset, body, LoxClassMethod())
         push!(methods, method_decl)
     end
     # rbrace
@@ -783,7 +786,7 @@ function declaration!(s::ParserState)::LoxDeclaration
         #     fun (x) {...};
         # which is not a declaration but rather an expression statement with an
         # anonymous function.
-        fun_declaration!(s)
+        namedfun_declaration!(s)
     else
         statement!(s)
     end

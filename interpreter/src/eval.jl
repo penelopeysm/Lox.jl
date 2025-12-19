@@ -81,7 +81,7 @@ function getvalue(env::LoxEnvironment, th::Parser.LoxThis)
     end
 end
 
-struct UnlocatedThis end
+struct UnlocatedThis end # Dummy struct.
 function setvalue!(
     env::LoxEnvironment,
     var::Union{Parser.LoxVariable,UnlocatedThis},
@@ -312,7 +312,9 @@ lox_add(::Parser.LoxExpr, left::LoxList, right::LoxList) =
 abstract type AbstractMethod end
 
 # NOTE: LoxMethod is NOT an AbstractLoxValue
-struct LoxMethod{T<:Union{Parser.LoxVariable,Nothing}} <: AbstractMethod
+struct LoxMethod{K<:Parser.LoxFunKind,T<:Union{Parser.LoxVariable,Nothing}} <: AbstractMethod
+    # kind: anon fun, named fun, or class method
+    kind::K
     # nothing if it's an anonymous function
     name::T
     parameters::Vector{Parser.LoxVariable}
@@ -321,9 +323,13 @@ struct LoxMethod{T<:Union{Parser.LoxVariable,Nothing}} <: AbstractMethod
     env::LoxEnvironment
 
     LoxMethod(decl::Parser.LoxFunDeclaration, env::LoxEnvironment) =
-        new{typeof(decl.name)}(decl.name, decl.parameters, decl.body, env)
+        new{typeof(decl.kind),typeof(decl.name)}(decl.kind, decl.name, decl.parameters, decl.body, env)
     LoxMethod(expr::Parser.LoxFunExpr, env::LoxEnvironment) =
-        new{Nothing}(nothing, expr.parameters, expr.body, env)
+        new{Parser.LoxAnonFunction,Nothing}(Parser.LoxAnonFunction(), nothing, expr.parameters, expr.body, env)
+
+    # update the environment of a method
+    LoxMethod(m::LoxMethod{K,T}, new_env::LoxEnvironment) where {K,T} =
+        new{K,T}(m.kind, m.name, m.parameters, m.body, new_env)
 end
 
 struct NativeMethod{F} <: AbstractMethod
@@ -369,7 +375,7 @@ function define_method!(env::LoxEnvironment, var::Parser.LoxVariable, value::Lox
             if haskey(mt.methods, arity)
                 printstyled(
                     "Lox: redefining method for $(fname) with arity $(show_arity(arity))\n";
-                    color = :yellow,
+                    color=:yellow,
                 )
             end
             mt.methods[arity] = value
@@ -641,16 +647,11 @@ function _lox_invoke(
     ::LoxEnvironment,
     func::LoxMethod,
     arg_values::Vector{<:AbstractLoxValue},
-    this_binding::Union{Nothing,AbstractLoxValue},
 )
     # Regenerate the function's original environment (but create an inner
     # one for the function call itself).
     new_env = LoxEnvironment(func.env, Dict{String,Any}())
-    # If there is a `this` binding, set it
-    if this_binding !== nothing
-        setvalue!(new_env, UnlocatedThis(), this_binding, true)
-    end
-    # Then bind the arguments
+    # Bind the arguments
     for (param, arg_value) in zip(func.parameters, arg_values)
         setvalue!(new_env, param, arg_value, true)
     end
@@ -670,7 +671,6 @@ function _lox_invoke(
     ::LoxEnvironment,
     func::NativeMethod,
     arg_values::Vector{<:AbstractLoxValue},
-    ::Union{Nothing,AbstractLoxValue},
 )
     try
         return func.julia_fun(arg_values...)
@@ -690,7 +690,6 @@ function _lox_invoke(
     env::LoxEnvironment,
     ::LoxImport,
     arg_values::Vector{<:AbstractLoxValue},
-    ::Union{Nothing,AbstractLoxValue},
 )
     length(arg_values) == 1 || throw(
         LoxTypeError(
@@ -729,7 +728,6 @@ function _lox_invoke(
     ::LoxEnvironment,
     cls::LoxClass,
     arg_values::AbstractVector,
-    ::Union{Nothing,AbstractLoxValue},
 )
     isempty(arg_values) ||
         throw(LoxTypeError(expr, "class constructors do not take any arguments"))
@@ -744,9 +742,15 @@ function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
     arg_values = convert(Vector{AbstractLoxValue}, arg_values)
     return if callee isa MethodTable
         func = resolve_method(expr, callee, nargs)
-        _lox_invoke(expr, env, func, arg_values, callee.this)
+        # supplement the function's stored environment with `this`, if it's a class method
+        if func isa LoxMethod{Parser.LoxClassMethod}
+            new_env = LoxEnvironment(func.env, Dict{String,Any}())
+            setvalue!(new_env, UnlocatedThis(), callee.this, true)
+            func = LoxMethod(func, new_env)
+        end
+        _lox_invoke(expr, env, func, arg_values)
     elseif callee isa LoxClass
-        _lox_invoke(expr, env, callee, arg_values, nothing)
+        _lox_invoke(expr, env, callee, arg_values)
     else
         throw(
             LoxTypeError(
@@ -949,7 +953,7 @@ end
 
 function lox_exec(
     prg::Parser.LoxProgramme,
-    env::LoxEnvironment = setup_global_environment(),
+    env::LoxEnvironment=setup_global_environment(),
 )
     # annotate LoxVariables with their environment indices
     SemanticAnalysis.resolve_variables!(prg)
