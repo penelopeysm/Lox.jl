@@ -99,6 +99,18 @@ The interpreter contains several differences from the book (mainly because I wan
 
 - In class initialisers you can `return this` but not `return` (the book forbids the former and allows the latter). This makes more sense to me. (Returning any other value is forbidden, just as in the book.)
 
+- Any class methods or fields that begin with an underscore are private and can only be accessed from within the class itself.
+
+  ```
+  lox> class A {}
+       var a = A();
+       a._private = 1;
+  
+  error @ REPL:3:1
+      a._private = 1;
+      ^^^^^^^^^^^^^^ cannot access private member '_private' outside of its class
+  ```
+
 ## Would I recommend Julia for compiler work?
 
 No way, unfortunately.
