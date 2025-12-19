@@ -543,35 +543,35 @@ function unary!(s::ParserState)::LoxExpr
         right_expr = unary!(s)
         return LoxUnary(MinusUnary(next_ltoken), right_expr)
     else
-        return call!(nothing, s)
+        return call_or_get!(nothing, s)
     end
 end
 
-function call!(::Nothing, s::ParserState)::LoxExpr
+function call_or_get!(::Nothing, s::ParserState)::LoxExpr
     callee_or_primary = primary!(s)
     next_token = peek_next_unlocated(s)
     if next_token isa Lexer.LeftParen
         args, rparen_end_offset = _call_args!(s)
-        return call!(LoxCall(callee_or_primary, args, rparen_end_offset), s)
+        return call_or_get!(LoxCall(callee_or_primary, args, rparen_end_offset), s)
     elseif next_token isa Lexer.Dot
         consume_next!(s)
         ident_ltoken =
             consume_or_error!(s, Lexer.Identifier, "expected property name after '.'")
-        return call!(LoxGet(callee_or_primary, LoxVariable(ident_ltoken)), s)
+        return call_or_get!(LoxGet(callee_or_primary, LoxVariable(ident_ltoken)), s)
     else
-        return callee_or_primary
+        return call_or_get!(callee_or_primary, s)
     end
 end
-function call!(callee::LoxExpr, s::ParserState)::LoxExpr
+function call_or_get!(callee::LoxExpr, s::ParserState)::LoxExpr
     next_token = peek_next_unlocated(s)
     if next_token isa Lexer.LeftParen
         args, rparen_end_offset = _call_args!(s)
-        return LoxCall(callee, args, rparen_end_offset)
+        return call_or_get!(LoxCall(callee, args, rparen_end_offset), s)
     elseif next_token isa Lexer.Dot
         consume_next!(s)
         ident_ltoken =
             consume_or_error!(s, Lexer.Identifier, "expected property name after '.'")
-        return LoxGet(callee, LoxVariable(ident_ltoken))
+        return call_or_get!(LoxGet(callee, LoxVariable(ident_ltoken)), s)
     else
         return callee
     end

@@ -1,4 +1,7 @@
-class NamedDog {
+class Dog {
+    init() {
+        this.name = "Unnamed Dog";
+    }
     init(name) {
         this.name = name;
     }
@@ -8,5 +11,5 @@ class NamedDog {
     }
 }
 
-var d = NamedDog("Heidi", "H");
-d.speak();         // Heidi says woof!"
+Dog("Heidi").speak();  // Heidi says woof!
+Dog().speak();         // Unnamed Dog says woof!

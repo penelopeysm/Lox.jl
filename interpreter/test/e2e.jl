@@ -171,6 +171,12 @@ end
             String[],
             0,
         )
+        ftest(
+            "class_initialisers.lox",
+            ["Heidi says woof!\nUnnamed Dog says woof!"],
+            String[],
+            0,
+        )
     end
 end
 
