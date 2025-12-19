@@ -35,6 +35,22 @@ Errors.get_offset(e::LoxCircularInheritanceError) =
 Errors.get_message(e::LoxCircularInheritanceError) =
     "class '$(e.class_decl.name.identifier)' cannot inherit from itself"
 
+struct LoxThisOutsideClassError <: LoxResolverError
+    this_expr::P.LoxThis
+end
+Errors.get_offset(e::LoxThisOutsideClassError) =
+    (P.start_offset(e.this_expr), P.end_offset(e.this_expr))
+Errors.get_message(e::LoxThisOutsideClassError) =
+    "'this' cannot be used outside of a class method"
+
+struct LoxSuperOutsideSubclassError <: LoxResolverError
+    super_expr::P.LoxSuper
+end
+Errors.get_offset(e::LoxSuperOutsideSubclassError) =
+    (P.start_offset(e.super_expr), P.end_offset(e.super_expr))
+Errors.get_message(e::LoxSuperOutsideSubclassError) =
+    "'super' cannot be used outside of a subclass method"
+
 struct LoxPrivateMemberAccessError{T<:P.LoxExpr} <: LoxResolverError
     expr::T  # loxget or loxset
     private_property::String
@@ -46,24 +62,29 @@ Errors.get_message(e::LoxPrivateMemberAccessError) =
 
 # the main entry point
 function resolve_variables!(ast::P.LoxProgramme)
-    _resolve!(ast, LoxScope(), nothing, false)
+    _resolve!(ast, LoxScope(), nothing, 0)
     return ast
 end
-function _resolve!(ast::P.LoxProgramme, scope::LoxScope, ::Nothing, in_class::Bool)
+
+# in_class is 1 if we are in a class method, 2 if we are in a subclass method, and 0
+# otherwise.
+# YES, this is ugly. I'm sorry.
+
+function _resolve!(ast::P.LoxProgramme, scope::LoxScope, ::Nothing, in_class::Int)
     foreach(c -> _resolve!(c, scope, nothing, in_class), P.children(ast))
 end
 
-function _resolve!(stmt::P.LoxBlockStatement, scope::LoxScope, forbidden, in_class::Bool)
+function _resolve!(stmt::P.LoxBlockStatement, scope::LoxScope, forbidden, in_class::Int)
     child_scope = LoxScope(Set{String}(), scope)
     for s in stmt.statements
         _resolve!(s, child_scope, forbidden, in_class)
     end
 end
-function _resolve!(stmt::P.LoxVarDeclaration, scope::LoxScope, ::Nothing, in_class::Bool)
+function _resolve!(stmt::P.LoxVarDeclaration, scope::LoxScope, ::Nothing, in_class::Int)
     push!(scope.variables, stmt.variable.identifier)
     _resolve!(stmt.initial_expr, scope, stmt.variable.identifier, in_class)
 end
-function _resolve!(fun::P.LoxFunDeclaration{P.LoxNamedFunction}, scope::LoxScope, ::Nothing, in_class::Bool)
+function _resolve!(fun::P.LoxFunDeclaration{P.LoxNamedFunction}, scope::LoxScope, ::Nothing, in_class::Int)
     push!(scope.variables, fun.name.identifier)
     _resolve!(fun.name, scope, nothing, in_class)
     param_scope = LoxScope(Set{String}(), scope)
@@ -72,7 +93,7 @@ function _resolve!(fun::P.LoxFunDeclaration{P.LoxNamedFunction}, scope::LoxScope
     end
     _resolve!(fun.body, param_scope, nothing, in_class)
 end
-function _resolve!(fun::P.LoxFunDeclaration{<:Union{P.LoxClassMethod,P.LoxSubClassMethod}}, scope::LoxScope, forbidden, ::Bool)
+function _resolve!(fun::P.LoxFunDeclaration{<:Union{P.LoxClassMethod,P.LoxSubClassMethod}}, scope::LoxScope, forbidden, ::Int)
     this_scope = LoxScope(Set{String}(["this"]), scope)
     super_scope = if fun.kind isa P.LoxClassMethod
         this_scope
@@ -83,9 +104,10 @@ function _resolve!(fun::P.LoxFunDeclaration{<:Union{P.LoxClassMethod,P.LoxSubCla
     for param in fun.parameters
         push!(param_scope.variables, param.identifier)
     end
-    _resolve!(fun.body, param_scope, forbidden, true)
+    in_class = fun.kind isa P.LoxClassMethod ? 1 : 2
+    _resolve!(fun.body, param_scope, forbidden, in_class)
 end
-function _resolve!(cls::P.LoxClassDeclaration, scope::LoxScope, ::Union{String,Nothing}, in_class::Bool)
+function _resolve!(cls::P.LoxClassDeclaration, scope::LoxScope, ::Union{String,Nothing}, in_class::Int)
     push!(scope.variables, cls.name.identifier)
     _resolve!(cls.name, scope, nothing, in_class)
     if cls.inherits_from !== nothing
@@ -108,7 +130,7 @@ function _resolve!(cls::P.LoxClassDeclaration, scope::LoxScope, ::Union{String,N
         _resolve!(method, scope, forbidden, in_class)
     end
 end
-function _resolve!(fun::P.LoxFunExpr, scope::LoxScope, ::Union{String,Nothing}, in_class::Bool)
+function _resolve!(fun::P.LoxFunExpr, scope::LoxScope, ::Union{String,Nothing}, in_class::Int)
     # Even if we are currently defining a new variable, e.g. with
     #     var f = fun (a) { ...};
     # it's OK that we reference `f` inside the function body. Hence, even if this
@@ -119,7 +141,7 @@ function _resolve!(fun::P.LoxFunExpr, scope::LoxScope, ::Union{String,Nothing}, 
     end
     _resolve!(fun.body, params_scope, nothing, in_class)
 end
-function _resolve!(var::P.LoxVariable, scope::LoxScope, forbidden::Union{String,Nothing}, ::Bool)
+function _resolve!(var::P.LoxVariable, scope::LoxScope, forbidden::Union{String,Nothing}, ::Int)
     if var.identifier == forbidden
         throw(LoxSelfReferentialInitialisationError(var))
     end
@@ -134,7 +156,8 @@ function _resolve!(var::P.LoxVariable, scope::LoxScope, forbidden::Union{String,
         count += 1
     end
 end
-function _resolve!(th::P.LoxThis, scope::LoxScope, ::Union{String,Nothing}, ::Bool)
+function _resolve!(th::P.LoxThis, scope::LoxScope, ::Union{String,Nothing}, in_class::Int)
+    in_class == 0 && throw(LoxThisOutsideClassError(th))
     current_scope = scope
     count = 0
     while current_scope !== nothing
@@ -146,7 +169,8 @@ function _resolve!(th::P.LoxThis, scope::LoxScope, ::Union{String,Nothing}, ::Bo
         count += 1
     end
 end
-function _resolve!(su::P.LoxSuper, scope::LoxScope, ::Union{String,Nothing}, ::Bool)
+function _resolve!(su::P.LoxSuper, scope::LoxScope, ::Union{String,Nothing}, in_class::Int)
+    in_class < 2 && throw(LoxSuperOutsideSubclassError(su))
     current_scope = scope
     count = 0
     while current_scope !== nothing
@@ -158,7 +182,7 @@ function _resolve!(su::P.LoxSuper, scope::LoxScope, ::Union{String,Nothing}, ::B
         count += 1
     end
 end
-function _resolve!(ret::P.LoxReturnStatement, scope::LoxScope, forbidden, in_class::Bool)
+function _resolve!(ret::P.LoxReturnStatement, scope::LoxScope, forbidden, in_class::Int)
     # If you're in an initialiser, you can't return anything but `this`. Note that this
     # diverges from the book, which allows empty `return` statements but not `return this`.
     # I think that is a bit odd because `return` on its own ordinarily returns `nil`.
@@ -167,14 +191,14 @@ function _resolve!(ret::P.LoxReturnStatement, scope::LoxScope, forbidden, in_cla
     end
     _resolve_default!(ret, scope, nothing, in_class)
 end
-function _resolve!(get::P.LoxGet, scope::LoxScope, forbidden, in_class::Bool)
-    if (!in_class || !(get.object isa P.LoxThis)) && startswith(get.property.identifier, ("_"))
+function _resolve!(get::P.LoxGet, scope::LoxScope, forbidden, in_class::Int)
+    if (in_class == 0 || !(get.object isa P.LoxThis)) && startswith(get.property.identifier, ("_"))
         throw(LoxPrivateMemberAccessError(get, get.property.identifier))
     end
     _resolve_default!(get, scope, forbidden, in_class)
 end
-function _resolve!(set::P.LoxSet, scope::LoxScope, forbidden, in_class::Bool)
-    if (!in_class || !(set.object isa P.LoxThis)) && startswith(set.property.identifier, ("_"))
+function _resolve!(set::P.LoxSet, scope::LoxScope, forbidden, in_class::Int)
+    if (in_class == 0 || !(set.object isa P.LoxThis)) && startswith(set.property.identifier, ("_"))
         throw(LoxPrivateMemberAccessError(set, set.property.identifier))
     end
     _resolve_default!(set, scope, forbidden, in_class)
