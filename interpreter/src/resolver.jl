@@ -138,13 +138,13 @@ function _resolve!(ret::P.LoxReturnStatement, scope::LoxScope, forbidden, in_cla
     _resolve_default!(ret, scope, nothing, in_class)
 end
 function _resolve!(get::P.LoxGet, scope::LoxScope, forbidden, in_class::Bool)
-    if !in_class && startswith(get.property.identifier, ("_"))
+    if (!in_class || !(get.object isa P.LoxThis)) && startswith(get.property.identifier, ("_"))
         throw(LoxPrivateMemberAccessError(get, get.property.identifier))
     end
     _resolve_default!(get, scope, forbidden, in_class)
 end
 function _resolve!(set::P.LoxSet, scope::LoxScope, forbidden, in_class::Bool)
-    if !in_class && startswith(set.property.identifier, ("_"))
+    if (!in_class || !(set.object isa P.LoxThis)) && startswith(set.property.identifier, ("_"))
         throw(LoxPrivateMemberAccessError(set, set.property.identifier))
     end
     _resolve_default!(set, scope, forbidden, in_class)
