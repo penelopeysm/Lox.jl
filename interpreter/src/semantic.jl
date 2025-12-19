@@ -89,7 +89,6 @@ function _resolve!(var::P.LoxVariable, scope::LoxScope, initialising::Union{Stri
     end
 end
 function _resolve!(th::P.LoxThis, scope::LoxScope, ::Union{String,Nothing})
-    @show scope
     current_scope = scope
     count = 0
     while current_scope !== nothing

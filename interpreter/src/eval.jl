@@ -469,10 +469,19 @@ function resolve_method(call_expr::Parser.LoxExpr, mt::MethodTable, nargs::Int)
     possible_arities = filter(k -> satisfies_arity(k, nargs), keys(mt.methods))
     if length(possible_arities) == 1
         return mt.methods[only(possible_arities)]
-    else
+    elseif length(possible_arities) > 1
         # Step 3: If there is more than one possibility, just complain that it's ambiguous,
         # because I can't be bothered to define more specific tie-breaking rules
         throw(LoxMethodAmbiguityError(call_expr, mt.func_name, nargs, possible_arities))
+    elseif isempty(possible_arities)
+        # LoxTypeError is probably too unspecific, but I'm too lazy to make yet another
+        # struct.
+        throw(
+            LoxTypeError(
+                call_expr,
+                "no method found for $(mt.func_name) with arity $(nargs); available arities are [$(join(map(show_arity, collect(keys(mt.methods))), ", "))]",
+            ),
+        )
     end
 end
 
@@ -729,9 +738,26 @@ function _lox_invoke(
     cls::LoxClass,
     arg_values::AbstractVector,
 )
-    isempty(arg_values) ||
-        throw(LoxTypeError(expr, "class constructors do not take any arguments"))
-    return LoxInstance(cls, Dict{String,AbstractLoxValue}())
+    instance = LoxInstance(cls, Dict{String,AbstractLoxValue}())
+    # Check for init method.
+    return if haskey(cls.methods, "init")
+        mt_unbound = cls.methods["init"]
+        func = resolve_method(expr, mt_unbound, length(arg_values))
+        # supplement the function's stored environment with `this`
+        new_env = LoxEnvironment(func.env, Dict{String,Any}())
+        setvalue!(new_env, UnlocatedThis(), instance, true)
+        func = LoxMethod(func, new_env)
+        # then invoke it
+        _lox_invoke(expr, new_env, func, arg_values)
+        # and always return the instance
+        return instance
+    else
+        isempty(arg_values) ||
+            throw(LoxTypeError(expr, "no initialiser defined for class $(cls.name); default constructor takes 0 arguments"))
+        LoxInstance(cls, Dict{String,AbstractLoxValue}())
+    end
+    # mt_unbound = cls.methods["init"]
+    # return MethodTable(mt_unbound.func_name, mt_unbound.methods, obj)
 end
 
 function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)

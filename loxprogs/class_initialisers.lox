@@ -1,0 +1,12 @@
+class NamedDog {
+    init(name) {
+        this.name = name;
+    }
+
+    speak() {
+        print this.name + " says woof!";
+    }
+}
+
+var d = NamedDog("Heidi", "H");
+d.speak();         // Heidi says woof!"
