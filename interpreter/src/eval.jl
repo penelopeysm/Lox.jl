@@ -59,16 +59,43 @@ function getvalue(env::LoxEnvironment, var::Parser.LoxVariable)
         end
     end
 end
+function getvalue(env::LoxEnvironment, th::Parser.LoxThis)
+    if th.env_index == -1
+        error("unreachable: 'this' could not be statically resolved")
+    else
+        # Use the env_index to find the correct environment
+        target_env = env
+        for _ = 1:th.env_index
+            if target_env.parent_env === nothing
+                error(
+                    "internal error: `this` has env_index $(th.env_index) but environment chain is too short",
+                )
+            end
+            target_env = target_env.parent_env
+        end
+        if haskey(target_env.vars, "this")
+            return target_env.vars["this"]
+        else
+            error("internal error: `this` not bound")
+        end
+    end
+end
 
+struct UnlocatedThis end
 function setvalue!(
     env::LoxEnvironment,
-    var::Parser.LoxVariable,
+    var::Union{Parser.LoxVariable,UnlocatedThis},
     value::AbstractLoxValue,
     is_new_declaration::Bool,
 )
-    if haskey(env.vars, var.identifier) || is_new_declaration
+    varname = if var isa UnlocatedThis
+        "this"
+    else
+        var.identifier
+    end
+    if haskey(env.vars, varname) || is_new_declaration
         # If it's a new variable, we always want to set it in the current scope.
-        env.vars[var.identifier] = value
+        env.vars[varname] = value
     elseif env.parent_env !== nothing && !is_new_declaration
         # We can only modify parent scopes if it's not a new variable.
         # TODO (stretch): allow modification of variables in parent environments (this
@@ -323,6 +350,8 @@ end
 struct MethodTable <: AbstractLoxValue
     func_name::String
     methods::Dict{Arity,AbstractMethod} # keys are arity
+    # if this is a method bound to an instance
+    this::Union{Nothing,AbstractLoxValue}
 end
 lox_repr_type(::MethodTable) = "methodtable"
 lox_show(mt::MethodTable) =
@@ -349,7 +378,7 @@ function define_method!(env::LoxEnvironment, var::Parser.LoxVariable, value::Lox
             throw(LoxTypeError(var, "$(fname) already defined as a non-function value"))
         end
     else
-        env.vars[fname] = MethodTable(fname, Dict(arity => value))
+        env.vars[fname] = MethodTable(fname, Dict(arity => value), nothing)
         return env
     end
     # TODO: We don't check parent scopes for existing method tables. This means
@@ -371,7 +400,7 @@ function define_method!(
             error("unreachable: tried to define native method for non-function value")
         end
     else
-        env.vars[fname] = MethodTable(fname, Dict(arity => value))
+        env.vars[fname] = MethodTable(fname, Dict(arity => value), nothing)
         return env
     end
 end
@@ -400,7 +429,7 @@ function lox_show(inst::LoxInstance)
     end
     s *= "<"
     prop_names = map(collect(pairs(inst.properties))) do (name, val)
-        "$(prop_name)=$(lox_show(prop_value))"
+        "$(name)=$(lox_show(val))"
     end
     s *= join(prop_names, " ")
     s *= ">"
@@ -410,7 +439,6 @@ end
 function define_class!(env::LoxEnvironment, class_decl::Parser.LoxClassDeclaration)
     classname = class_decl.name.identifier
     clean_env = LoxEnvironment(nothing, Dict{String,Any}())
-    this_env = LoxEnvironment
     for method in class_decl.methods
         define_method!(clean_env, method.name, LoxMethod(method, env))
     end
@@ -478,6 +506,14 @@ Errors.get_offset(err::LoxTypeError) =
     (Parser.start_offset(err.expr), Parser.end_offset(err.expr))
 Errors.get_message(err::LoxTypeError) = err.message
 
+struct LoxImportError{Texpr<:Parser.LoxExpr} <: LoxEvalError
+    expr::Texpr
+    message::String
+end
+Errors.get_offset(err::LoxImportError) =
+    (Parser.start_offset(err.expr), Parser.end_offset(err.expr))
+Errors.get_message(err::LoxImportError) = err.message
+
 struct LoxUndefVarError <: LoxEvalError
     # LoxVariable subtypes LoxExpr, so we have location info in it
     variable::Parser.LoxVariable
@@ -520,8 +556,8 @@ end
 Errors.get_offset(err::LoxMethodAmbiguityError) =
     (Parser.start_offset(err.expr), Parser.end_offset(err.expr))
 function Errors.get_message(err::LoxMethodAmbiguityError)
-    arities_string = join(map(show_arity, possible_arities), "< ")
-    return "invocation of $(func_name) with $(nargs) arguments is ambiguous; methods are defined for arities $(arities_string)"
+    arities_string = join(map(show_arity, err.possible_arities), "< ")
+    return "invocation of $(err.func_name) with $(err.nargs) arguments is ambiguous; methods are defined for arities $(arities_string)"
 end
 
 ##############
@@ -537,13 +573,14 @@ lox_eval(lit::Parser.LoxLiteral{<:Number}, ::LoxEnvironment) = LoxNumber(lit.val
 lox_eval(lit::Parser.LoxLiteral{<:Bool}, ::LoxEnvironment) = LoxBoolean(lit.value)
 lox_eval(lit::Parser.LoxLiteral{<:String}, ::LoxEnvironment) = LoxString(lit.value)
 lox_eval(::Parser.LoxLiteral{Nothing}, ::LoxEnvironment) = LoxNil()
-lox_eval(var::Parser.LoxVariable, env::LoxEnvironment) = getvalue(env, var)
+lox_eval(var::Union{Parser.LoxVariable,Parser.LoxThis}, env::LoxEnvironment) =
+    getvalue(env, var)
 lox_eval(grp::Parser.LoxGrouping, env::LoxEnvironment) = lox_eval(grp.expression, env)
 function lox_eval(expr::Parser.LoxFunExpr, env::LoxEnvironment)
     f = LoxMethod(expr, env)
     nargs = length(expr.parameters)
     arity = Arity(nargs, nargs)
-    return MethodTable("<anonymous>", Dict(arity => f))
+    return MethodTable("<anonymous>", Dict(arity => f), nothing)
 end
 function lox_eval(expr::Parser.LoxUnary{Parser.Bang}, env::LoxEnvironment)
     return lox_bang(expr, lox_truthy(lox_eval(expr.right, env)))
@@ -604,10 +641,16 @@ function _lox_invoke(
     ::LoxEnvironment,
     func::LoxMethod,
     arg_values::Vector{<:AbstractLoxValue},
+    this_binding::Union{Nothing,AbstractLoxValue},
 )
     # Regenerate the function's original environment (but create an inner
     # one for the function call itself).
     new_env = LoxEnvironment(func.env, Dict{String,Any}())
+    # If there is a `this` binding, set it
+    if this_binding !== nothing
+        setvalue!(new_env, UnlocatedThis(), this_binding, true)
+    end
+    # Then bind the arguments
     for (param, arg_value) in zip(func.parameters, arg_values)
         setvalue!(new_env, param, arg_value, true)
     end
@@ -627,6 +670,7 @@ function _lox_invoke(
     ::LoxEnvironment,
     func::NativeMethod,
     arg_values::Vector{<:AbstractLoxValue},
+    ::Union{Nothing,AbstractLoxValue},
 )
     try
         return func.julia_fun(arg_values...)
@@ -644,8 +688,9 @@ end
 function _lox_invoke(
     expr::Parser.LoxExpr,
     env::LoxEnvironment,
-    func::LoxImport,
+    ::LoxImport,
     arg_values::Vector{<:AbstractLoxValue},
+    ::Union{Nothing,AbstractLoxValue},
 )
     length(arg_values) == 1 || throw(
         LoxTypeError(
@@ -654,33 +699,37 @@ function _lox_invoke(
         ),
     )
     fname_val = only(arg_values)
-    fname_val isa LoxString || throw(
-        LoxTypeError(
-            expr,
-            "import function expects a string filename, got value of type $(lox_repr_type(fname_val))",
-        ),
-    )
-    fname = fname_val.value
-    # Read the file
-    file_contents = read(fname, String)
-    # Lex, parse, and execute it in the environment
-    tokens, lex_errors = Lexer.lex(file_contents)
-    if !isempty(lex_errors)
-        throw(LoxImportError(expr, "lexing failed on file $(fname)"))
+    if fname_val isa LoxString
+        fname = fname_val.value
+        # Read the file
+        file_contents = read(fname, String)
+        # Lex, parse, and execute it in the environment
+        tokens, lex_errors = Lexer.lex(file_contents)
+        if !isempty(lex_errors)
+            throw(LoxImportError(expr, "lexing failed on file $(fname)"))
+        end
+        prg, parse_errors = Parser.parse(tokens)
+        if !isempty(parse_errors)
+            throw(LoxImportError(expr, "parsing failed on file $(fname)"))
+        end
+        SemanticAnalysis.resolve_variables!(prg)
+        lox_exec(prg, env)
+        return LoxNil()
+    else
+        throw(
+            LoxTypeError(
+                expr,
+                "import function expects a string filename, got value of type $(lox_repr_type(fname_val))",
+            ),
+        )
     end
-    prg, parse_errors = Parser.parse(tokens)
-    if !isempty(parse_errors)
-        throw(LoxImportError(expr, "parsing failed on file $(fname)"))
-    end
-    SemanticAnalysis.resolve_variables!(prg)
-    lox_exec(prg, env)
-    return LoxNil()
 end
 function _lox_invoke(
-    ::Parser.LoxExpr,
+    expr::Parser.LoxExpr,
     ::LoxEnvironment,
     cls::LoxClass,
     arg_values::AbstractVector,
+    ::Union{Nothing,AbstractLoxValue},
 )
     isempty(arg_values) ||
         throw(LoxTypeError(expr, "class constructors do not take any arguments"))
@@ -693,11 +742,11 @@ function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
     arg_values = map(Base.Fix2(lox_eval, env), expr.arguments)
     # the above infers as Vector{Any}, so we have to convert :(
     arg_values = convert(Vector{AbstractLoxValue}, arg_values)
-    if callee isa MethodTable
+    return if callee isa MethodTable
         func = resolve_method(expr, callee, nargs)
-        _lox_invoke(expr, env, func, arg_values)
+        _lox_invoke(expr, env, func, arg_values, callee.this)
     elseif callee isa LoxClass
-        _lox_invoke(expr, env, callee, arg_values)
+        _lox_invoke(expr, env, callee, arg_values, nothing)
     else
         throw(
             LoxTypeError(
@@ -715,9 +764,9 @@ function lox_eval(expr::Parser.LoxGet, env::LoxEnvironment)
         if haskey(obj.properties, property_name)
             return obj.properties[property_name]
         elseif haskey(obj.cls.methods, property_name)
-            # Return the method table as a value
-            # TODO: Need to construct a bound method here!
-            return obj.cls.methods[property_name]
+            # Return the method table as a value.
+            mt_unbound = obj.cls.methods[property_name]
+            return MethodTable(mt_unbound.func_name, mt_unbound.methods, obj)
         else
             throw(LoxUndefPropertyError(expr, property_name, obj.cls.name))
         end
@@ -818,7 +867,7 @@ function setup_global_environment()
     function lox_readfile(fname::LoxString)
         try
             return LoxString(read(fname.value, String))
-        catch e
+        catch
             throw(InsideLoxNativeMethodError("could not read from file $(fname.value)"))
         end
     end
@@ -882,7 +931,7 @@ function setup_global_environment()
         try
             n = parse(Float64, s.value)
             return LoxNumber(n)
-        catch e
+        catch
             throw(
                 InsideLoxNativeMethodError(
                     "could not convert string '$(s.value)' to number",

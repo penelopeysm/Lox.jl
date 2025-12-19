@@ -60,6 +60,16 @@ start_offset(v::LoxVariable) = v.start_offset
 end_offset(v::LoxVariable) = v.end_offset
 children(::LoxVariable) = LoxExprOrDecl[]
 
+mutable struct LoxThis <: LoxExpr
+    const start_offset::Int
+    const end_offset::Int
+    env_index::Int # -1 for unresolved; otherwise indicates the number of scopes out
+    LoxThis(start_offset::Int, end_offset::Int) = new(start_offset, end_offset, -1)
+end
+start_offset(t::LoxThis) = t.start_offset
+end_offset(t::LoxThis) = t.end_offset
+children(::LoxThis) = LoxExprOrDecl[]
+
 ##### Decls
 
 struct LoxVarDeclaration{Tex<:Union{LoxExpr,Nothing}} <: LoxDeclaration
@@ -382,6 +392,23 @@ to_sexp(expr::LoxFunExpr) =
     ") " *
     to_sexp(expr.body) *
     ")"
+to_sexp(expr::LoxGet) = "(get " * to_sexp(expr.object) * " " * to_sexp(expr.property) * ")"
+to_sexp(expr::LoxSet) =
+    "(set " *
+    to_sexp(expr.object) *
+    " " *
+    to_sexp(expr.property) *
+    " " *
+    to_sexp(expr.value_expression) *
+    ")"
+to_sexp(expr::LoxThis) = "this"
+to_sexp(cls_decl::LoxClassDeclaration) =
+    "(class " *
+    to_sexp(cls_decl.name) *
+    " (" *
+    (length(cls_decl.methods) == 0 ? "" : join(map(to_sexp, cls_decl.methods), " ")) *
+    ") " *
+    ")"
 to_sexp(prg::LoxProgramme) = join(map(to_sexp, prg.statements), "\n")
 
 ### The parser state
@@ -427,8 +454,6 @@ end
 expression!(s::ParserState)::LoxExpr = assignment!(s)
 
 function assignment!(s::ParserState)::LoxExpr
-    # need to cache the current location for error reporting below
-    current_offset = get_next_offset(s)
     expr = or!(s)
     if peek_next_unlocated(s) isa Lexer.Equal
         # check if `expr` is an l-value
@@ -603,6 +628,9 @@ function primary!(s::ParserState)::LoxExpr
             consume_or_error!(s, Lexer.RightParen, "Expected ')' after expression")
         rightparen_end_offset = rparen_ltoken.end_offset
         return LoxGrouping(expr, leftparen_start_offset, rightparen_end_offset)
+    elseif next_token isa Lexer.This
+        consume_next!(s)
+        return LoxThis(next_ltoken.start_offset, next_ltoken.end_offset)
     else
         # parse failure
         throw(LoxParseError(next_ltoken.end_offset, "Parse error: " * string(next_token)))

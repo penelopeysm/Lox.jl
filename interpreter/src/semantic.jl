@@ -38,9 +38,11 @@ function _resolve!(stmt::P.LoxVarDeclaration, scope::LoxScope, ::Nothing)
     _resolve!(stmt.initial_expr, scope, stmt.variable.identifier)
 end
 function _resolve!(fun::P.LoxFunDeclaration, scope::LoxScope, ::Nothing)
+    # TODO: if it's a class method, fun.name.identifier should not be added to the current
+    # scope, since methods are not variables in the outer scope.
     push!(scope.variables, fun.name.identifier)
     _resolve!(fun.name, scope, nothing)
-    child_scope = LoxScope(Set{String}(), scope)
+    child_scope = LoxScope(Set{String}(["this"]), scope)
     for param in fun.parameters
         push!(child_scope.variables, param.identifier)
     end
@@ -59,11 +61,11 @@ function _resolve!(fun::P.LoxFunExpr, scope::LoxScope, ::Union{String,Nothing})
     #     var f = fun (a) { ...};
     # it's OK that we reference `f` inside the function body. Hence, even if this
     # method is called with forbidden != nothing, we just ignore it.
-    child_scope = LoxScope(Set{String}(), scope)
+    params_scope = LoxScope(Set{String}(), scope)
     for param in fun.parameters
-        push!(child_scope.variables, param.identifier)
+        push!(params_scope.variables, param.identifier)
     end
-    _resolve!(fun.body, child_scope, nothing)
+    _resolve!(fun.body, params_scope, nothing)
 end
 function _resolve!(var::P.LoxVariable, scope::LoxScope, initialising::Union{String,Nothing})
     if var.identifier == initialising
@@ -74,6 +76,19 @@ function _resolve!(var::P.LoxVariable, scope::LoxScope, initialising::Union{Stri
     while current_scope !== nothing
         if var.identifier in current_scope.variables
             var.env_index = count
+            return
+        end
+        current_scope = current_scope.parent
+        count += 1
+    end
+end
+function _resolve!(th::P.LoxThis, scope::LoxScope, ::Union{String,Nothing})
+    @show scope
+    current_scope = scope
+    count = 0
+    while current_scope !== nothing
+        if "this" in current_scope.variables
+            th.env_index = count
             return
         end
         current_scope = current_scope.parent
