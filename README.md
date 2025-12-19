@@ -97,6 +97,8 @@ The interpreter contains several differences from the book (mainly because I wan
               ^^^^^^^^^^^^^ division by zero
   ```
 
+- In class initialisers you can `return this` but not `return` (the book forbids the former and allows the latter). This makes more sense to me. (Returning any other value is forbidden, just as in the book.)
+
 ## Would I recommend Julia for compiler work?
 
 No way, unfortunately.

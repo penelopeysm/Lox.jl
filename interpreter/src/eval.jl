@@ -546,7 +546,7 @@ end
 Errors.get_offset(err::LoxUndefPropertyError) =
     (Parser.start_offset(err.get_expr), Parser.end_offset(err.get_expr))
 Errors.get_message(err::LoxUndefPropertyError) =
-    "class '$(err.class_name)' has no property '$(err.property_name)'"
+    "instance of $(err.class_name) has no property '$(err.property_name)'"
 
 struct LoxUnexpectedReturnError <: LoxEvalError
     return_stmt::Parser.LoxReturnStatement

@@ -169,7 +169,7 @@ struct LoxFunDeclaration{K<:LoxFunKind} <: LoxDeclaration
 end
 start_offset(decl::LoxFunDeclaration) = decl.start_offset
 end_offset(decl::LoxFunDeclaration) = end_offset(decl.body)
-children(decl::LoxFunDeclaration) = [decl.name, decl.parameters, decl.body]
+children(decl::LoxFunDeclaration) = [decl.name, decl.parameters..., decl.body]
 
 struct LoxClassDeclaration <: LoxDeclaration
     name::LoxVariable
