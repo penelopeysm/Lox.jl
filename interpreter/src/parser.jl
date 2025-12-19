@@ -309,10 +309,8 @@ struct LoxParseError{T<:Union{Int,LoxExpr}} <: Errors.LoxError
     message::String
 end
 Errors.get_offset(err::LoxParseError{Int}) = (err.source, err.source + 1)
-Errors.get_offset(err::LoxParseError{<:LoxExpr}) = (
-    start_offset(err.source),
-    end_offset(err.source),
-)
+Errors.get_offset(err::LoxParseError{<:LoxExpr}) =
+    (start_offset(err.source), end_offset(err.source))
 Errors.get_message(err::LoxParseError) = err.message
 
 ### Pretty-printing parser outputs

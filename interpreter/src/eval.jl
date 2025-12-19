@@ -381,11 +381,12 @@ struct LoxClass <: AbstractLoxValue
     methods::Dict{String,MethodTable}
 end
 lox_repr_type(::LoxClass) = "class"
-lox_show(c::LoxClass) = if isempty(c.methods)
-    "<Lox class $(c.name) with no methods>"
-else
-    "<Lox class $(c.name) with methods $(join(keys(c.methods), ", "))>"
-end
+lox_show(c::LoxClass) =
+    if isempty(c.methods)
+        "<Lox class $(c.name) with no methods>"
+    else
+        "<Lox class $(c.name) with methods $(join(keys(c.methods), ", "))>"
+    end
 
 struct LoxInstance <: AbstractLoxValue
     cls::LoxClass
@@ -681,12 +682,8 @@ function _lox_invoke(
     cls::LoxClass,
     arg_values::AbstractVector,
 )
-    isempty(arg_values) || throw(
-        LoxTypeError(
-            expr,
-            "class constructors do not take any arguments",
-        ),
-    )
+    isempty(arg_values) ||
+        throw(LoxTypeError(expr, "class constructors do not take any arguments"))
     return LoxInstance(cls, Dict{String,AbstractLoxValue}())
 end
 
