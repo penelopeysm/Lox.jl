@@ -1,4 +1,4 @@
-module SemanticAnalysis
+module Resolver
 
 using ..Errors: Errors, LoxError
 using ..Parser: Parser as P
@@ -9,9 +9,9 @@ struct LoxScope
 end
 LoxScope() = LoxScope(Set{String}(), nothing)
 
-abstract type LoxSemAnaError <: LoxError end
+abstract type LoxResolverError <: LoxError end
 
-struct LoxSelfReferentialInitialisationError <: LoxSemAnaError
+struct LoxSelfReferentialInitialisationError <: LoxResolverError
     variable::P.LoxVariable
 end
 Errors.get_offset(e::LoxSelfReferentialInitialisationError) =
@@ -19,7 +19,7 @@ Errors.get_offset(e::LoxSelfReferentialInitialisationError) =
 Errors.get_message(e::LoxSelfReferentialInitialisationError) =
     "variable '$(e.variable.identifier)' cannot reference itself during initialisation"
 
-struct LoxInvalidReturnError <: LoxSemAnaError
+struct LoxInvalidReturnError <: LoxResolverError
     return_stmt::P.LoxReturnStatement
 end
 Errors.get_offset(e::LoxInvalidReturnError) =

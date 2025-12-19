@@ -6,7 +6,7 @@ export run_prompt
 include("errors.jl")
 include("lexer.jl")
 include("parser.jl")
-include("semantic.jl")
+include("resolver.jl")
 include("eval.jl")
 
 using .Errors: LoxError, Location, show_error, report_error

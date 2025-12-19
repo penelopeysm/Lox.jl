@@ -3,7 +3,7 @@ module Eval
 using ..Lexer: Lexer
 using ..Errors: Errors, LoxError, Location
 using ..Parser: Parser
-using ..SemanticAnalysis: SemanticAnalysis
+using ..Resolver: Resolver
 
 """
     AbstractLoxValue
@@ -720,7 +720,7 @@ function _lox_invoke(
         if !isempty(parse_errors)
             throw(LoxImportError(expr, "parsing failed on file $(fname)"))
         end
-        SemanticAnalysis.resolve_variables!(prg)
+        Resolver.resolve_variables!(prg)
         lox_exec(prg, env)
         return LoxNil()
     else
@@ -982,7 +982,7 @@ function lox_exec(
     env::LoxEnvironment=setup_global_environment(),
 )
     # annotate LoxVariables with their environment indices
-    SemanticAnalysis.resolve_variables!(prg)
+    Resolver.resolve_variables!(prg)
     for stmt in prg.statements
         lox_exec(stmt, env)
     end
