@@ -13,8 +13,10 @@ abstract type LoxSemAnaError <: LoxError end
 struct LoxSelfReferentialInitialisationError <: LoxSemAnaError
     variable::P.LoxVariable
 end
-Errors.get_offset(e::LoxSelfReferentialInitialisationError) = (P.start_offset(e.variable), P.end_offset(e.variable))
-Errors.get_message(e::LoxSelfReferentialInitialisationError) = "variable '$(e.variable.identifier)' cannot reference itself during initialisation"
+Errors.get_offset(e::LoxSelfReferentialInitialisationError) =
+    (P.start_offset(e.variable), P.end_offset(e.variable))
+Errors.get_message(e::LoxSelfReferentialInitialisationError) =
+    "variable '$(e.variable.identifier)' cannot reference itself during initialisation"
 
 # the main entry point
 function resolve_variables!(ast::P.LoxProgramme)
@@ -37,11 +39,20 @@ function _resolve!(stmt::P.LoxVarDeclaration, scope::LoxScope, ::Nothing)
 end
 function _resolve!(fun::P.LoxFunDeclaration, scope::LoxScope, ::Nothing)
     push!(scope.variables, fun.name.identifier)
+    _resolve!(fun.name, scope, nothing)
     child_scope = LoxScope(Set{String}(), scope)
     for param in fun.parameters
         push!(child_scope.variables, param.identifier)
     end
     _resolve!(fun.body, child_scope, nothing)
+end
+function _resolve!(cls::P.LoxClassDeclaration, scope::LoxScope, ::Nothing)
+    push!(scope.variables, cls.name.identifier)
+    _resolve!(cls.name, scope, nothing)
+    # TODO: is this for loop correct?
+    for method in cls.methods
+        _resolve!(method, scope, nothing)
+    end
 end
 function _resolve!(fun::P.LoxFunExpr, scope::LoxScope, ::Union{String,Nothing})
     # Even if we are currently defining a new variable, e.g. with

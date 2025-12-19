@@ -86,12 +86,7 @@ end
     end
 
     @testset "conditionals" begin
-        ftest(
-            "ifthenelse.lox",
-            ["one plus two is less than four"],
-            String[],
-            0,
-        )
+        ftest("ifthenelse.lox", ["one plus two is less than four"], String[], 0)
         ftest("truthy.lox", ["one is truthy", "nil is falsy"], String[], 0)
         ftest("danglingelse.lox", ["world"], String[], 0)
         ftest(
@@ -152,65 +147,21 @@ end
     end
 
     @testset "functions" begin
-        ftest(
-            "multimethods.lox",
-            [
-                "1.0\n6.0"
-            ],
-            String[],
-            0,
-        )
+        ftest("multimethods.lox", ["1.0\n6.0"], String[], 0)
         ftest(
             "fibonacci.lox",
-            [
-                "0.0\n1.0\n1.0\n2.0\n3.0\n5.0\n8.0\n13.0\n21.0\n34.0"
-            ],
+            ["0.0\n1.0\n1.0\n2.0\n3.0\n5.0\n8.0\n13.0\n21.0\n34.0"],
             String[],
             0,
         )
-        ftest(
-            "closures.lox",
-            [
-                "1.0\n2.0\nglobal\nh1\nglobal\nh2\n1.0\n1.0"
-            ],
-            String[],
-            0,
-        )
-        ftest(
-            "functional_pair.lox",
-            [
-                "first\nsecond"
-            ],
-            String[],
-            0,
-        )
-        ftest(
-            "anon_functions.lox",
-            [
-                "1.0\n2.0"
-            ],
-            String[],
-            0,
-        )
+        ftest("closures.lox", ["1.0\n2.0\nglobal\nh1\nglobal\nh2\n1.0\n1.0"], String[], 0)
+        ftest("functional_pair.lox", ["first\nsecond"], String[], 0)
+        ftest("anon_functions.lox", ["1.0\n2.0"], String[], 0)
     end
 
     @testset "list and string primitives" begin
-        ftest(
-            "lists.lox",
-            [
-                "list<1.0,2.0,a>\n1.0\n2.0\na\n1.0\n2.0\na"
-            ],
-            String[],
-            0,
-        )
-        ftest(
-            "string_manip.lox",
-            [
-                "h e l l o"
-            ],
-            String[],
-            0,
-        )
+        ftest("lists.lox", ["list<1.0,2.0,a>\n1.0\n2.0\na\n1.0\n2.0\na"], String[], 0)
+        ftest("string_manip.lox", ["h e l l o"], String[], 0)
     end
 end
 

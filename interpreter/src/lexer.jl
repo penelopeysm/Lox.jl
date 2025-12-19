@@ -332,7 +332,9 @@ function read_next_token!(s::LexerState)::Nothing
                 elseif escaped_char == '\\'
                     str *= '\\'
                 else
-                    throw(LoxLexError(s.position, "Invalid escape sequence: \\$escaped_char"))
+                    throw(
+                        LoxLexError(s.position, "Invalid escape sequence: \\$escaped_char"),
+                    )
                 end
             else
                 if isnothing(next_char)  # end of file

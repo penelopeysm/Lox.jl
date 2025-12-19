@@ -42,16 +42,20 @@ function getvalue(env::LoxEnvironment, var::Parser.LoxVariable)
     else
         # Use the env_index to find the correct environment
         target_env = env
-        for _ in 1:var.env_index
+        for _ = 1:var.env_index
             if target_env.parent_env === nothing
-                error("internal error: variable $(var.identifier) has env_index $(var.env_index) but environment chain is too short")
+                error(
+                    "internal error: variable $(var.identifier) has env_index $(var.env_index) but environment chain is too short",
+                )
             end
             target_env = target_env.parent_env
         end
         if haskey(target_env.vars, var.identifier)
             return target_env.vars[var.identifier]
         else
-            error("internal error: variable $(var.identifier) not found in environment at index $(var.env_index)")
+            error(
+                "internal error: variable $(var.identifier) not found in environment at index $(var.env_index)",
+            )
         end
     end
 end
@@ -124,15 +128,18 @@ lox_eq(::Parser.LoxExpr, ::AbstractLoxValue, ::AbstractLoxValue) = LoxBoolean(fa
 
 Logical negation.
 """
-lox_bang(expr::Parser.LoxExpr, v::AbstractLoxValue) =
-    throw(LoxTypeError(expr, "cannot apply '!' operator to value of type $(lox_repr_type(v))"))
+lox_bang(expr::Parser.LoxExpr, v::AbstractLoxValue) = throw(
+    LoxTypeError(expr, "cannot apply '!' operator to value of type $(lox_repr_type(v))"),
+)
 
 """
     lox_unary_negate(expr::LoxExpr, n::AbstractLoxValue)::LoxNumber
 
 Unary negation for numbers.
 """
-lox_unary_negate(expr::Parser.LoxExpr, n::AbstractLoxValue) = throw(LoxTypeError(expr, "expected number for unary negation, but got $(lox_repr_type(n))"))
+lox_unary_negate(expr::Parser.LoxExpr, n::AbstractLoxValue) = throw(
+    LoxTypeError(expr, "expected number for unary negation, but got $(lox_repr_type(n))"),
+)
 
 """
     lox_neq(expr::LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue)::LoxBoolean
@@ -141,7 +148,8 @@ Check if two Lox values are unequal. Inequality is always defined such that (a !
 This means that the implementation does not need to create new methods for `lox_neq`; we can just
 rely on implementations of `lox_eq`.
 """
-lox_neq(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) = lox_bang(expr, lox_eq(expr, left, right))
+lox_neq(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
+    lox_bang(expr, lox_eq(expr, left, right))
 
 struct LoxNil <: AbstractLoxValue end
 lox_truthy(::LoxNil) = LoxBoolean(false)
@@ -162,38 +170,70 @@ lox_eq(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
 # Mathematical operations
 lox_add(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
     LoxNumber(left.value + right.value)
-lox_add(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
-    throw(LoxTypeError(expr, "cannot add values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+lox_add(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) = throw(
+    LoxTypeError(
+        expr,
+        "cannot add values of types $(lox_repr_type(left)) and $(lox_repr_type(right))",
+    ),
+)
 lox_sub(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
     LoxNumber(left.value - right.value)
-lox_sub(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
-    throw(LoxTypeError(expr, "cannot subtract values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+lox_sub(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) = throw(
+    LoxTypeError(
+        expr,
+        "cannot subtract values of types $(lox_repr_type(left)) and $(lox_repr_type(right))",
+    ),
+)
 lox_mul(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
     LoxNumber(left.value * right.value)
-lox_mul(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
-    throw(LoxTypeError(expr, "cannot multiply values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+lox_mul(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) = throw(
+    LoxTypeError(
+        expr,
+        "cannot multiply values of types $(lox_repr_type(left)) and $(lox_repr_type(right))",
+    ),
+)
 function lox_div(expr::Parser.LoxExpr, left::LoxNumber, right::LoxNumber)
     iszero(right.value) && throw(LoxZeroDivisionError(expr))
     return LoxNumber(left.value / right.value)
 end
-lox_div(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
-    throw(LoxTypeError(expr, "cannot divide values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+lox_div(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) = throw(
+    LoxTypeError(
+        expr,
+        "cannot divide values of types $(lox_repr_type(left)) and $(lox_repr_type(right))",
+    ),
+)
 lox_lt(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
     LoxBoolean(left.value < right.value)
-lox_lt(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
-    throw(LoxTypeError(expr, "cannot compare values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+lox_lt(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) = throw(
+    LoxTypeError(
+        expr,
+        "cannot compare values of types $(lox_repr_type(left)) and $(lox_repr_type(right))",
+    ),
+)
 lox_le(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
     LoxBoolean(left.value <= right.value)
-lox_le(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
-    throw(LoxTypeError(expr, "cannot compare values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+lox_le(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) = throw(
+    LoxTypeError(
+        expr,
+        "cannot compare values of types $(lox_repr_type(left)) and $(lox_repr_type(right))",
+    ),
+)
 lox_gt(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
     LoxBoolean(left.value > right.value)
-lox_gt(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
-    throw(LoxTypeError(expr, "cannot compare values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+lox_gt(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) = throw(
+    LoxTypeError(
+        expr,
+        "cannot compare values of types $(lox_repr_type(left)) and $(lox_repr_type(right))",
+    ),
+)
 lox_ge(::Parser.LoxExpr, left::LoxNumber, right::LoxNumber) =
     LoxBoolean(left.value >= right.value)
-lox_ge(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) =
-    throw(LoxTypeError(expr, "cannot compare values of types $(lox_repr_type(left)) and $(lox_repr_type(right))"))
+lox_ge(expr::Parser.LoxExpr, left::AbstractLoxValue, right::AbstractLoxValue) = throw(
+    LoxTypeError(
+        expr,
+        "cannot compare values of types $(lox_repr_type(left)) and $(lox_repr_type(right))",
+    ),
+)
 
 struct LoxBoolean <: AbstractLoxValue
     value::Bool
@@ -285,12 +325,9 @@ struct MethodTable <: AbstractLoxValue
     methods::Dict{Arity,AbstractMethod} # keys are arity
 end
 lox_repr_type(::MethodTable) = "methodtable"
-lox_show(mt::MethodTable) = "<Lox method table for $(mt.func_name) with arities [$(join(map(show_arity, collect(keys(mt.methods))), ", "))]>"
-function define_method!(
-    env::LoxEnvironment,
-    var::Parser.LoxVariable,
-    value::LoxMethod,
-)
+lox_show(mt::MethodTable) =
+    "<Lox method table for $(mt.func_name) with arities [$(join(map(show_arity, collect(keys(mt.methods))), ", "))]>"
+function define_method!(env::LoxEnvironment, var::Parser.LoxVariable, value::LoxMethod)
     # This defines a new function. Right now, in plain Lox syntax, there is no way to define
     # a variadic function. Thus all Lox-defined functions the arity is a single number.
     fname = var.identifier
@@ -301,17 +338,15 @@ function define_method!(
         if mt isa MethodTable
             # Add to existing method table
             if haskey(mt.methods, arity)
-                printstyled("Lox: redefining method for $(fname) with arity $(show_arity(arity))\n"; color=:yellow)
+                printstyled(
+                    "Lox: redefining method for $(fname) with arity $(show_arity(arity))\n";
+                    color = :yellow,
+                )
             end
             mt.methods[arity] = value
             return env
         else
-            throw(
-                LoxTypeError(
-                    var,
-                    "$(fname) already defined as a non-function value",
-                ),
-            )
+            throw(LoxTypeError(var, "$(fname) already defined as a non-function value"))
         end
     else
         env.vars[fname] = MethodTable(fname, Dict(arity => value))
@@ -339,6 +374,49 @@ function define_method!(
         env.vars[fname] = MethodTable(fname, Dict(arity => value))
         return env
     end
+end
+
+struct LoxClass <: AbstractLoxValue
+    name::String
+    methods::Dict{String,MethodTable}
+end
+lox_repr_type(::LoxClass) = "class"
+lox_show(c::LoxClass) = if isempty(c.methods)
+    "<Lox class $(c.name) with no methods>"
+else
+    "<Lox class $(c.name) with methods $(join(keys(c.methods), ", "))>"
+end
+
+struct LoxInstance <: AbstractLoxValue
+    cls::LoxClass
+    properties::Dict{String,AbstractLoxValue}
+end
+lox_repr_type(i::LoxInstance) = i.cls.name
+function lox_show(inst::LoxInstance)
+    s = "$(inst.cls.name)"
+    if isempty(inst.properties)
+        return s
+    end
+    s *= "<"
+    prop_names = map(collect(pairs(inst.properties))) do (name, val)
+        "$(prop_name)=$(lox_show(prop_value))"
+    end
+    s *= join(prop_names, " ")
+    s *= ">"
+    return s
+end
+
+function define_class!(env::LoxEnvironment, class_decl::Parser.LoxClassDeclaration)
+    classname = class_decl.name.identifier
+    clean_env = LoxEnvironment(nothing, Dict{String,Any}())
+    this_env = LoxEnvironment
+    for method in class_decl.methods
+        define_method!(clean_env, method.name, LoxMethod(method, env))
+    end
+    # Now convert the clean_env into a Dict{String,MethodTable}
+    methods = Dict{String,MethodTable}(clean_env.vars)
+    env.vars[classname] = LoxClass(classname, methods)
+    return env
 end
 
 """
@@ -407,6 +485,16 @@ Errors.get_offset(err::LoxUndefVarError) =
     (Parser.start_offset(err.variable), Parser.end_offset(err.variable))
 Errors.get_message(err::LoxUndefVarError) =
     "undefined variable: `$(err.variable.identifier)`"
+
+struct LoxUndefPropertyError <: LoxEvalError
+    get_expr::Parser.LoxGet
+    property_name::String
+    class_name::String
+end
+Errors.get_offset(err::LoxUndefPropertyError) =
+    (Parser.start_offset(err.get_expr), Parser.end_offset(err.get_expr))
+Errors.get_message(err::LoxUndefPropertyError) =
+    "class '$(err.class_name)' has no property '$(err.property_name)'"
 
 struct LoxUnexpectedReturnError <: LoxEvalError
     return_stmt::Parser.LoxReturnStatement
@@ -509,7 +597,13 @@ function lox_eval(expr::Parser.LoxBinary{Parser.Divide}, env::LoxEnvironment)
 end
 lox_eval(expr::Parser.LoxBinary{Parser.Add}, env::LoxEnvironment) =
     lox_add(expr, lox_eval(expr.left, env), lox_eval(expr.right, env))
-function _lox_invoke(::Parser.LoxExpr, ::LoxEnvironment, func::LoxMethod, arg_values::Vector{<:AbstractLoxValue})
+
+function _lox_invoke(
+    ::Parser.LoxExpr,
+    ::LoxEnvironment,
+    func::LoxMethod,
+    arg_values::Vector{<:AbstractLoxValue},
+)
     # Regenerate the function's original environment (but create an inner
     # one for the function call itself).
     new_env = LoxEnvironment(func.env, Dict{String,Any}())
@@ -527,7 +621,12 @@ function _lox_invoke(::Parser.LoxExpr, ::LoxEnvironment, func::LoxMethod, arg_va
         end
     end
 end
-function _lox_invoke(expr::Parser.LoxExpr, ::LoxEnvironment, func::NativeMethod, arg_values::Vector{<:AbstractLoxValue})
+function _lox_invoke(
+    expr::Parser.LoxExpr,
+    ::LoxEnvironment,
+    func::NativeMethod,
+    arg_values::Vector{<:AbstractLoxValue},
+)
     try
         return func.julia_fun(arg_values...)
     catch e
@@ -541,7 +640,12 @@ function _lox_invoke(expr::Parser.LoxExpr, ::LoxEnvironment, func::NativeMethod,
         end
     end
 end
-function _lox_invoke(expr::Parser.LoxExpr, env::LoxEnvironment, func::LoxImport, arg_values::Vector{<:AbstractLoxValue})
+function _lox_invoke(
+    expr::Parser.LoxExpr,
+    env::LoxEnvironment,
+    func::LoxImport,
+    arg_values::Vector{<:AbstractLoxValue},
+)
     length(arg_values) == 1 || throw(
         LoxTypeError(
             expr,
@@ -571,20 +675,75 @@ function _lox_invoke(expr::Parser.LoxExpr, env::LoxEnvironment, func::LoxImport,
     lox_exec(prg, env)
     return LoxNil()
 end
+function _lox_invoke(
+    ::Parser.LoxExpr,
+    ::LoxEnvironment,
+    cls::LoxClass,
+    arg_values::AbstractVector,
+)
+    isempty(arg_values) || throw(
+        LoxTypeError(
+            expr,
+            "class constructors do not take any arguments",
+        ),
+    )
+    return LoxInstance(cls, Dict{String,AbstractLoxValue}())
+end
+
 function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
     callee = lox_eval(expr.callee, env)
     nargs = length(expr.arguments)
+    arg_values = map(Base.Fix2(lox_eval, env), expr.arguments)
+    # the above infers as Vector{Any}, so we have to convert :(
+    arg_values = convert(Vector{AbstractLoxValue}, arg_values)
     if callee isa MethodTable
         func = resolve_method(expr, callee, nargs)
-            arg_values = map(Base.Fix2(lox_eval, env), expr.arguments)
-            # the above infers as Vector{Any}, so we have to convert :(
-            arg_values = convert(Vector{AbstractLoxValue}, arg_values)
-            _lox_invoke(expr, env, func, arg_values)
+        _lox_invoke(expr, env, func, arg_values)
+    elseif callee isa LoxClass
+        _lox_invoke(expr, env, callee, arg_values)
     else
         throw(
             LoxTypeError(
                 expr.callee,
                 "attempted to call a non-function value of type $(lox_repr_type(callee))",
+            ),
+        )
+    end
+end
+
+function lox_eval(expr::Parser.LoxGet, env::LoxEnvironment)
+    obj = lox_eval(expr.object, env)
+    if obj isa LoxInstance
+        property_name = expr.property.identifier
+        if haskey(obj.properties, property_name)
+            return obj.properties[property_name]
+        elseif haskey(obj.cls.methods, property_name)
+            # Return the method table as a value
+            # TODO: Need to construct a bound method here!
+            return obj.cls.methods[property_name]
+        else
+            throw(LoxUndefPropertyError(expr, property_name, obj.cls.name))
+        end
+    else
+        throw(
+            LoxTypeError(
+                expr.object,
+                "attempted to get property on non-instance value of type $(lox_repr_type(obj))",
+            ),
+        )
+    end
+end
+
+function lox_eval(expr::Parser.LoxSet, env::LoxEnvironment)
+    obj = lox_eval(expr.object, env)
+    if obj isa LoxInstance
+        property_name = expr.property.identifier
+        obj.properties[property_name] = lox_eval(expr.value_expression, env)
+    else
+        throw(
+            LoxTypeError(
+                expr.object,
+                "attempted to set property on non-instance value of type $(lox_repr_type(obj))",
             ),
         )
     end
@@ -606,6 +765,10 @@ function lox_exec(stmt::Parser.LoxVarDeclaration{<:Parser.LoxExpr}, env::LoxEnvi
 end
 function lox_exec(decl::Parser.LoxFunDeclaration, env::LoxEnvironment)
     define_method!(env, decl.name, LoxMethod(decl, env))
+    return env
+end
+function lox_exec(decl::Parser.LoxClassDeclaration, env::LoxEnvironment)
+    define_class!(env, decl)
     return env
 end
 function lox_exec(stmt::Parser.LoxExprStatement, env::LoxEnvironment)
@@ -675,7 +838,11 @@ function setup_global_environment()
     function lox_length(x::AbstractLoxValue)
         # TODO: we could technically define length for strings too, instead of defining it
         # in the prelude
-        throw(InsideLoxNativeMethodError("`length(s)` not defined for value `s` of type $(lox_repr_type(x))"))
+        throw(
+            InsideLoxNativeMethodError(
+                "`length(s)` not defined for value `s` of type $(lox_repr_type(x))",
+            ),
+        )
     end
     define_method!(env, "length", Arity(1, 1), NativeMethod(lox_length))
 
@@ -683,12 +850,20 @@ function setup_global_environment()
     function lox_at(lst::LoxList, index::LoxNumber)
         idx = Int(round(index.value))
         if idx < 0 || idx >= length(lst.elements)
-            throw(InsideLoxNativeMethodError("index $(idx) out of bounds for list of length $(length(lst.elements))"))
+            throw(
+                InsideLoxNativeMethodError(
+                    "index $(idx) out of bounds for list of length $(length(lst.elements))",
+                ),
+            )
         end
-        return lst.elements[idx + 1] # YES, FREEDOM FROM JULIA'S 1-INDEXING
+        return lst.elements[idx+1] # YES, FREEDOM FROM JULIA'S 1-INDEXING
     end
     function lox_at(x::AbstractLoxValue, ::LoxNumber)
-        throw(InsideLoxNativeMethodError("`at(s, i)` not defined for value `s` of type $(lox_repr_type(x))"))
+        throw(
+            InsideLoxNativeMethodError(
+                "`at(s, i)` not defined for value `s` of type $(lox_repr_type(x))",
+            ),
+        )
     end
     define_method!(env, "at", Arity(2, 2), NativeMethod(lox_at))
 
@@ -697,7 +872,11 @@ function setup_global_environment()
         return LoxList([LoxString(string(c)) for c in collect(s.value)])
     end
     function lox_chars(x::AbstractLoxValue)
-        throw(InsideLoxNativeMethodError("`chars(s)` not defined for value `s` of type $(lox_repr_type(x))"))
+        throw(
+            InsideLoxNativeMethodError(
+                "`chars(s)` not defined for value `s` of type $(lox_repr_type(x))",
+            ),
+        )
     end
     define_method!(env, "chars", Arity(1, 1), NativeMethod(lox_chars))
 
@@ -707,7 +886,11 @@ function setup_global_environment()
             n = parse(Float64, s.value)
             return LoxNumber(n)
         catch e
-            throw(InsideLoxNativeMethodError("could not convert string '$(s.value)' to number"))
+            throw(
+                InsideLoxNativeMethodError(
+                    "could not convert string '$(s.value)' to number",
+                ),
+            )
         end
     end
     define_method!(env, "to_number", Arity(1, 1), NativeMethod(lox_to_number))
@@ -720,7 +903,7 @@ end
 
 function lox_exec(
     prg::Parser.LoxProgramme,
-    env::LoxEnvironment=setup_global_environment()
+    env::LoxEnvironment = setup_global_environment(),
 )
     # annotate LoxVariables with their environment indices
     SemanticAnalysis.resolve_variables!(prg)

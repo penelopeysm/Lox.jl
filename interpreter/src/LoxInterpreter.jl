@@ -22,9 +22,9 @@ Execute a Lox source file.
 
 Returns an exit code indicating success or failure.
 """
-function run_file(filename::AbstractString, debug::Bool=false)::Int
+function run_file(filename::AbstractString, debug::Bool = false)::Int
     if isdir(filename)
-        printstyled(Base.stderr, "error: "; color=:red, bold=true)
+        printstyled(Base.stderr, "error: "; color = :red, bold = true)
         println(Base.stderr, "`$filename` is a directory")
         return EXIT_FILE_NOT_FOUND
     end
@@ -40,7 +40,7 @@ function run_file(filename::AbstractString, debug::Bool=false)::Int
         end
     catch e
         if e isa SystemError
-            printstyled(Base.stderr, "error: "; color=:red, bold=true)
+            printstyled(Base.stderr, "error: "; color = :red, bold = true)
             println(Base.stderr, "file `$filename` was not found")
             return EXIT_FILE_NOT_FOUND
         end
@@ -59,7 +59,7 @@ Julia REPL, or through ReplMaker.jl.
 
 TODO: Handle Ctrl-C (try/catch InterruptException doesn't seem to work)
 """
-function run_prompt(debug::Bool=false)::Nothing
+function run_prompt(debug::Bool = false)::Nothing
     println("Running prompt. Use two newlines to finish a snippet.")
     line_number = 1
     env = Eval.setup_global_environment()
@@ -124,7 +124,7 @@ function run(
     source::AbstractString,
     start_loc::Location,
     debug::Bool,
-    env::Eval.LoxEnvironment=Eval.setup_global_environment(),
+    env::Eval.LoxEnvironment = Eval.setup_global_environment(),
 )::Union{Eval.LoxEnvironment,LoxError}
     try
         tokens, lex_errors = Lexer.lex(source)

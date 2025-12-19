@@ -5,15 +5,6 @@ using ..Lexer: Lexer
 
 export parse, to_sexp
 
-struct LoxParseError <: Errors.LoxError
-    offset::Int
-    message::String
-end
-# Since parse errors are only associated with a single location, we can safely
-# make the 'end offset' be just the character after the start offset
-Errors.get_offset(err::LoxParseError) = (err.offset, err.offset + 1)
-Errors.get_message(err::LoxParseError) = err.message
-
 ### AST types
 
 abstract type LoxExprOrDecl end
@@ -155,22 +146,34 @@ children(stmt::LoxBlockStatement) = stmt.statements
 struct LoxFunDeclaration <: LoxDeclaration
     name::LoxVariable
     parameters::Vector{LoxVariable}
-    fun_start_offset::Int
+    # for a function, this is the start offset of the 'fun' keyword; or for a class method,
+    # the start offset of the method name, since those aren't defined using `fun`
+    start_offset::Int
     body::LoxBlockStatement
 end
-start_offset(decl::LoxFunDeclaration) = decl.fun_start_offset
+start_offset(decl::LoxFunDeclaration) = decl.start_offset
 end_offset(decl::LoxFunDeclaration) = end_offset(decl.body)
 children(decl::LoxFunDeclaration) = [decl.name, decl.parameters, decl.body]
+
+struct LoxClassDeclaration <: LoxDeclaration
+    name::LoxVariable
+    class_start_offset::Int
+    rbrace_end_offset::Int
+    methods::Vector{LoxFunDeclaration}
+end
+start_offset(decl::LoxClassDeclaration) = decl.class_start_offset
+end_offset(decl::LoxClassDeclaration) = decl.rbrace_end_offset
+children(decl::LoxClassDeclaration) = [decl.name, decl.methods...]
 
 #### More exprs
 
 # Anonymous functions
 struct LoxFunExpr <: LoxExpr
     parameters::Vector{LoxVariable}
-    fun_start_offset::Int
+    start_offset::Int
     body::LoxBlockStatement
 end
-start_offset(fun::LoxFunExpr) = fun.fun_start_offset
+start_offset(fun::LoxFunExpr) = fun.start_offset
 end_offset(fun::LoxFunExpr) = end_offset(fun.body)
 children(fun::LoxFunExpr) = [fun.parameters, fun.body]
 
@@ -262,6 +265,14 @@ start_offset(c::LoxCall) = start_offset(c.callee)
 end_offset(c::LoxCall) = c.right_paren_end_offset
 children(c::LoxCall) = [c.callee, c.arguments...]
 
+struct LoxGet{Tex<:LoxExpr} <: LoxExpr
+    object::Tex
+    property::LoxVariable
+end
+start_offset(g::LoxGet) = start_offset(g.object)
+end_offset(g::LoxGet) = end_offset(g.property)
+children(g::LoxGet) = [g.object]
+
 struct LoxGrouping{Tex<:LoxExpr} <: LoxExpr
     expression::Tex
     start_offset::Int
@@ -278,9 +289,31 @@ struct LoxAssignment{Tex<:LoxExpr} <: LoxExpr
     target_variable::LoxVariable
     value_expression::Tex
 end
+struct LoxSet{Tex<:LoxExpr,Tex2<:LoxExpr} <: LoxExpr
+    object::Tex
+    property::LoxVariable
+    value_expression::Tex2
+end
+start_offset(s::LoxSet) = start_offset(s.object)
+end_offset(s::LoxSet) = end_offset(s.value_expression)
+children(s::LoxSet) = [s.object, s.value_expression]
+
 start_offset(a::LoxAssignment) = start_offset(a.target_variable)
 end_offset(a::LoxAssignment) = end_offset(a.value_expression)
 children(a::LoxAssignment) = [a.target_variable, a.value_expression]
+
+#### Parse errors
+
+struct LoxParseError{T<:Union{Int,LoxExpr}} <: Errors.LoxError
+    source::T
+    message::String
+end
+Errors.get_offset(err::LoxParseError{Int}) = (err.source, err.source + 1)
+Errors.get_offset(err::LoxParseError{<:LoxExpr}) = (
+    start_offset(err.source),
+    end_offset(err.source),
+)
+Errors.get_message(err::LoxParseError) = err.message
 
 ### Pretty-printing parser outputs
 
@@ -339,9 +372,7 @@ to_sexp(fun_decl::LoxFunDeclaration) =
     "(fun " *
     to_sexp(fun_decl.name) *
     " (" *
-    (length(fun_decl.parameters) == 0
-     ? ""
-     : join(map(to_sexp, fun_decl.parameters), " ")) *
+    (length(fun_decl.parameters) == 0 ? "" : join(map(to_sexp, fun_decl.parameters), " ")) *
     ") " *
     to_sexp(fun_decl.body) *
     ")"
@@ -349,9 +380,7 @@ to_sexp(stmt::LoxWhileStatement) =
     "(while " * to_sexp(stmt.condition) * " " * to_sexp(stmt.body) * ")"
 to_sexp(expr::LoxFunExpr) =
     "(anon_fun (" *
-    (length(expr.parameters) == 0
-     ? ""
-     : join(map(to_sexp, expr.parameters), " ")) *
+    (length(expr.parameters) == 0 ? "" : join(map(to_sexp, expr.parameters), " ")) *
     ") " *
     to_sexp(expr.body) *
     ")"
@@ -406,11 +435,15 @@ function assignment!(s::ParserState)::LoxExpr
     if peek_next_unlocated(s) isa Lexer.Equal
         # check if `expr` is an l-value
         if expr isa LoxVariable
-            consume_next!(s)
+            consume_next!(s) # equals
             value_expr = assignment!(s)
             return LoxAssignment(expr, value_expr)
+        elseif expr isa LoxGet
+            consume_next!(s) # equals
+            value_expr = assignment!(s)
+            return LoxSet(expr.object, expr.property, value_expr)
         else
-            throw(LoxParseError(current_offset, "Invalid assignment target"))
+            throw(LoxParseError(expr, "invalid assignment target"))
         end
     end
     return expr
@@ -487,17 +520,29 @@ end
 
 function call!(::Nothing, s::ParserState)::LoxExpr
     callee_or_primary = primary!(s)
-    if peek_next_unlocated(s) isa Lexer.LeftParen
+    next_token = peek_next_unlocated(s)
+    if next_token isa Lexer.LeftParen
         args, rparen_end_offset = _call_args!(s)
         return call!(LoxCall(callee_or_primary, args, rparen_end_offset), s)
+    elseif next_token isa Lexer.Dot
+        consume_next!(s)
+        ident_ltoken =
+            consume_or_error!(s, Lexer.Identifier, "expected property name after '.'")
+        return call!(LoxGet(callee_or_primary, LoxVariable(ident_ltoken)), s)
     else
         return callee_or_primary
     end
 end
 function call!(callee::LoxExpr, s::ParserState)::LoxExpr
-    if peek_next_unlocated(s) isa Lexer.LeftParen
+    next_token = peek_next_unlocated(s)
+    if next_token isa Lexer.LeftParen
         args, rparen_end_offset = _call_args!(s)
         return LoxCall(callee, args, rparen_end_offset)
+    elseif next_token isa Lexer.Dot
+        consume_next!(s)
+        ident_ltoken =
+            consume_or_error!(s, Lexer.Identifier, "expected property name after '.'")
+        return LoxGet(callee, LoxVariable(ident_ltoken))
     else
         return callee
     end
@@ -525,7 +570,11 @@ function _call_args!(s::ParserState)::Tuple{Vector{LoxExpr},Int}
             consume_next!(s) # comma
             continue
         else
-            rparen = consume_or_error!(s, Lexer.RightParen, "expected ')' after function call arguments")
+            rparen = consume_or_error!(
+                s,
+                Lexer.RightParen,
+                "expected ')' after function call arguments",
+            )
             return args, rparen.end_offset
         end
     end
@@ -563,7 +612,11 @@ function primary!(s::ParserState)::LoxExpr
 end
 
 function fun_expression!(s::ParserState)::LoxFunExpr
-    fun_ltoken = consume_or_error!(s, Lexer.Fun, "unreachable: fun_expression! called without fun token")
+    fun_ltoken = consume_or_error!(
+        s,
+        Lexer.Fun,
+        "unreachable: fun_expression! called without fun token",
+    )
     # parameters
     consume_or_error!(s, Lexer.LeftParen, "expected '(' after function name")
     params = LoxVariable[]
@@ -577,7 +630,11 @@ function fun_expression!(s::ParserState)::LoxFunExpr
             if peek_next_unlocated(s) isa Lexer.Comma
                 consume_next!(s) # comma
             else
-                consume_or_error!(s, Lexer.RightParen, "expected ')' after function parameters")
+                consume_or_error!(
+                    s,
+                    Lexer.RightParen,
+                    "expected ')' after function parameters",
+                )
                 break
             end
         end
@@ -587,45 +644,13 @@ function fun_expression!(s::ParserState)::LoxFunExpr
     return LoxFunExpr(params, fun_ltoken.start_offset, block)
 end
 
-"""
-Consume tokens until we reach somewhere we can resume parsing from.
-
-In particular, this function mutates `s` such that the _next_ token (i.e. `peek_next(s)`) is
-the first token that parsing could conceivably begin from.
-
-If there are no such tokens, then this function mutates `s` such that `peek_next(s)` is the
-EOF token.
-"""
-function synchronise!(s::ParserState)
-    while true
-        if peek_next_unlocated(s) isa Lexer.Semicolon
-            consume_next!(s)
-            return
-        end
-        if peek_next_unlocated(s) isa Lexer.Eof
-            return
-        end
-        # Then look ahead
-        consume_next!(s)
-        next_token = peek_next_unlocated(s)
-        if (
-            next_token isa Lexer.Class ||
-            next_token isa Lexer.Fun ||
-            next_token isa Lexer.Var ||
-            next_token isa Lexer.For ||
-            next_token isa Lexer.If ||
-            next_token isa Lexer.While ||
-            next_token isa Lexer.Print ||
-            next_token isa Lexer.Return
-        )
-            break
-        end
-    end
-end
-
 function var_declaration!(s::ParserState)::LoxVarDeclaration
     # consume the 'var' token
-    var_ltoken = consume_or_error!(s, Lexer.Var, "unreachable: var_declaration! called without var token")
+    var_ltoken = consume_or_error!(
+        s,
+        Lexer.Var,
+        "unreachable: var_declaration! called without var token",
+    )
     var_start_offset = var_ltoken.start_offset
     # get identifier
     next_ltoken = consume_or_error!(s, Lexer.Identifier, "Expected identifier after 'var'")
@@ -641,16 +666,17 @@ function var_declaration!(s::ParserState)::LoxVarDeclaration
     end
 end
 
-function fun_declaration!(s::ParserState)::LoxFunDeclaration
-    # consume the 'fun' token
-    fun_ltoken = consume_or_error!(s, Lexer.Fun, "unreachable: fun_declaration! called without fun token")
-    fun_start_offset = fun_ltoken.start_offset
+function fun_declaration_no_fun!(s::ParserState)::LoxFunDeclaration
     # get function name (note that the presence of this is also checked before this function
     # is called, so this should never fail)
-    next_ltoken = consume_or_error!(s, Lexer.Identifier, "unreachable: fun_declaration! called without function name")
+    next_ltoken = consume_or_error!(
+        s,
+        Lexer.Identifier,
+        "unreachable: fun_declaration! called without function name",
+    )
     function_name = LoxVariable(next_ltoken)
     # parameters
-    consume_or_error!(s, Lexer.LeftParen, "expected '(' after function name")
+    lparen = consume_or_error!(s, Lexer.LeftParen, "expected '(' after function name")
     params = LoxVariable[]
     # handle empty parameter list
     if peek_next_unlocated(s) isa Lexer.RightParen
@@ -662,20 +688,70 @@ function fun_declaration!(s::ParserState)::LoxFunDeclaration
             if peek_next_unlocated(s) isa Lexer.Comma
                 consume_next!(s) # comma
             else
-                consume_or_error!(s, Lexer.RightParen, "expected ')' after function parameters")
+                consume_or_error!(
+                    s,
+                    Lexer.RightParen,
+                    "expected ')' after function parameters",
+                )
                 break
             end
         end
     end
     # function body
     block = block_statement!(s)
-    return LoxFunDeclaration(function_name, params, fun_start_offset, block)
+    return LoxFunDeclaration(function_name, params, lparen.start_offset, block)
+end
+
+function fun_declaration!(s::ParserState)::LoxFunDeclaration
+    # consume the 'fun' token
+    fun_ltoken = consume_or_error!(
+        s,
+        Lexer.Fun,
+        "unreachable: fun_declaration! called without fun token",
+    )
+    no_fun_decl = fun_declaration_no_fun!(s)
+    return LoxFunDeclaration(
+        no_fun_decl.name,
+        no_fun_decl.parameters,
+        fun_ltoken.start_offset,
+        no_fun_decl.body,
+    )
+end
+
+function class_declaration!(s::ParserState)::LoxClassDeclaration
+    # 'class'
+    class_ltoken = consume_or_error!(
+        s,
+        Lexer.Class,
+        "unreachable: class_declaration! called without class token",
+    )
+    class_start_offset = class_ltoken.start_offset
+    # name
+    name_ltoken =
+        consume_or_error!(s, Lexer.Identifier, "expected class name after 'class'")
+    class_name = LoxVariable(name_ltoken)
+    # lbrace
+    consume_or_error!(s, Lexer.LeftBrace, "expected '{' before class body")
+    # methods
+    methods = LoxFunDeclaration[]
+    while !(
+        peek_next_unlocated(s) isa Lexer.RightBrace || peek_next_unlocated(s) isa Lexer.Eof
+    )
+        method_decl = fun_declaration_no_fun!(s)
+        push!(methods, method_decl)
+    end
+    # rbrace
+    rbrace_ltoken = consume_or_error!(s, Lexer.RightBrace, "expected '}' after class body")
+    rbrace_end_offset = rbrace_ltoken.end_offset
+    return LoxClassDeclaration(class_name, class_start_offset, rbrace_end_offset, methods)
 end
 
 function declaration!(s::ParserState)::LoxDeclaration
     next_token = peek_next_unlocated(s)
     return if next_token isa Lexer.Var
         var_declaration!(s)
+    elseif next_token isa Lexer.Class
+        class_declaration!(s)
     elseif next_token isa Lexer.Fun && s.tokens[s.tokens_read+2].token isa Lexer.Identifier
         # We need to check the next-next token to correctly parse things like
         #     fun (x) {...};
@@ -851,15 +927,31 @@ function expr_statement!(s::ParserState)::LoxExprStatement
 end
 
 function print_statement!(s::ParserState)::LoxPrintStatement
-    print_ltoken = consume_or_error!(s, Lexer.Print, "unreachable: print_statement! called without print token")
+    print_ltoken = consume_or_error!(
+        s,
+        Lexer.Print,
+        "unreachable: print_statement! called without print token",
+    )
     expr_statement = expr_statement!(s)
-    return LoxPrintStatement(expr_statement.expression, print_ltoken.start_offset, expr_statement.end_offset)
+    return LoxPrintStatement(
+        expr_statement.expression,
+        print_ltoken.start_offset,
+        expr_statement.end_offset,
+    )
 end
 
 function return_statement!(s::ParserState)::LoxReturnStatement
-    return_ltoken = consume_or_error!(s, Lexer.Return, "unreachable: return_statement! called without return token")
+    return_ltoken = consume_or_error!(
+        s,
+        Lexer.Return,
+        "unreachable: return_statement! called without return token",
+    )
     expr_statement = expr_statement!(s)
-    return LoxReturnStatement(expr_statement.expression, return_ltoken.start_offset, expr_statement.end_offset)
+    return LoxReturnStatement(
+        expr_statement.expression,
+        return_ltoken.start_offset,
+        expr_statement.end_offset,
+    )
 end
 
 function statement!(s::ParserState)::LoxStatement
@@ -909,6 +1001,42 @@ function programme!(s::ParserState)::LoxProgramme
         end
     end
     return LoxProgramme(decls)
+end
+
+"""
+Consume tokens until we reach somewhere we can resume parsing from.
+
+In particular, this function mutates `s` such that the _next_ token (i.e. `peek_next(s)`) is
+the first token that parsing could conceivably begin from.
+
+If there are no such tokens, then this function mutates `s` such that `peek_next(s)` is the
+EOF token.
+"""
+function synchronise!(s::ParserState)
+    while true
+        if peek_next_unlocated(s) isa Lexer.Semicolon
+            consume_next!(s)
+            return
+        end
+        if peek_next_unlocated(s) isa Lexer.Eof
+            return
+        end
+        # Then look ahead
+        consume_next!(s)
+        next_token = peek_next_unlocated(s)
+        if (
+            next_token isa Lexer.Class ||
+            next_token isa Lexer.Fun ||
+            next_token isa Lexer.Var ||
+            next_token isa Lexer.For ||
+            next_token isa Lexer.If ||
+            next_token isa Lexer.While ||
+            next_token isa Lexer.Print ||
+            next_token isa Lexer.Return
+        )
+            break
+        end
+    end
 end
 
 function parse(
