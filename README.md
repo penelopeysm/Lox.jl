@@ -2,7 +2,7 @@
 
 [*Crafting Interpreters*](https://craftinginterpreters.com/), but in Julia.
 
-Specifically, this is the first half of the book (tree-walk interpreter).
+Specifically, this is the first half of the book (tree-walk interpreter), but with a handful of divergences from the book's spec (see below).
 
 Run with
 
@@ -122,6 +122,6 @@ But, unfortunately, Julia's TTFX is just simply way, way, way, too annoying to d
 It would be a *much* more pleasant experience to use a language that has fast incremental compilation.
 Of the languages I've used before, I would probably consider OCaml or Rust.
 
-Correctness, which is a really important consideration for a compiler, is also much harder to achieve in julia because of its dynamic type system.
+Correctness, which is a really important consideration for a compiler, is also much harder to achieve in Julia because of its dynamic type system.
 
 I will say that Julia's multiple dispatch system does make for some nice code (as opposed to the book which uses the visitor pattern in Java).
