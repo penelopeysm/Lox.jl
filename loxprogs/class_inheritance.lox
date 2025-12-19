@@ -1,0 +1,23 @@
+class Animal {
+    speak () {
+        print "I'm making some noise!";
+    }
+}
+
+class Dog extends Animal {
+    speak() {
+        print "Woof!";
+    }
+}
+
+class Swan extends Animal {}
+
+class TrumpeterSwan extends Swan {
+    speak () {
+        print "HOOOOOONK!";
+    }
+}
+
+Dog().speak();            // Woof!
+Swan().speak();           // I'm making some noise!
+TrumpeterSwan().speak();  // HOOOOOONK!

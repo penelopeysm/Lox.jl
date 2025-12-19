@@ -183,6 +183,12 @@ end
             ["    print h._atomic_number;", "          ^^^^^^^^^^^^^^^^ cannot access private member '_atomic_number' outside of its class"],
             LoxInterpreter.EXIT_RUNTIME_ERROR,
         )
+        ftest(
+            "class_inheritance.lox",
+            ["Woof!\nI'm making some noise!\nHOOOOOONK!"],
+            String[],
+            0,
+        )
     end
 end
 

@@ -27,6 +27,14 @@ Errors.get_offset(e::LoxInvalidReturnError) =
 Errors.get_message(e::LoxInvalidReturnError) =
     "cannot return a value from an initializer"
 
+struct LoxCircularInheritanceError <: LoxResolverError
+    class_decl::P.LoxClassDeclaration
+end
+Errors.get_offset(e::LoxCircularInheritanceError) =
+    (P.start_offset(e.class_decl), P.end_offset(e.class_decl))
+Errors.get_message(e::LoxCircularInheritanceError) =
+    "class '$(e.class_decl.name.identifier)' cannot inherit from itself"
+
 struct LoxPrivateMemberAccessError{T<:P.LoxExpr} <: LoxResolverError
     expr::T  # loxget or loxset
     private_property::String
@@ -73,9 +81,14 @@ function _resolve!(fun::P.LoxFunDeclaration{P.LoxClassMethod}, scope::LoxScope, 
     _resolve!(fun.body, param_scope, forbidden, true)
 end
 function _resolve!(cls::P.LoxClassDeclaration, scope::LoxScope, in_class::Nothing)
-    in_class && error("unreachable: nested classes are not supported")
     push!(scope.variables, cls.name.identifier)
     _resolve!(cls.name, scope, nothing, in_class)
+    if cls.inherits_from !== nothing
+        if cls.inherits_from.identifier == cls.name.identifier
+            throw(Errors.LoxCircularInheritanceError(cls))
+        end
+        _resolve!(cls.inherits_from, scope, nothing, in_class)
+    end
     for method in cls.methods
         forbidden = if method.name.identifier == "init"
             # Strictly speaking, this is bad code, because we're using the string 'return'

@@ -414,6 +414,9 @@ end
 struct LoxClass <: AbstractLoxValue
     name::String
     methods::Dict{String,MethodTable}
+    # would like for this to be a type parameter, but Julia can't handle circular
+    # definitions in type parameters. SAD!
+    superclass::Union{Nothing,LoxClass}
 end
 lox_repr_type(::LoxClass) = "class"
 lox_show(c::LoxClass) =
@@ -450,7 +453,13 @@ function define_class!(env::LoxEnvironment, class_decl::Parser.LoxClassDeclarati
     end
     # Now convert the clean_env into a Dict{String,MethodTable}
     methods = Dict{String,MethodTable}(clean_env.vars)
-    env.vars[classname] = LoxClass(classname, methods)
+    # If there is a superclass, look it up
+    superclass = if class_decl.inherits_from === nothing
+        nothing
+    else
+        getvalue(env, class_decl.inherits_from)
+    end
+    env.vars[classname] = LoxClass(classname, methods, superclass)
     return env
 end
 
@@ -787,18 +796,34 @@ function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
     end
 end
 
+function get_class_method(
+    expr::Parser.LoxExpr,
+    obj::LoxInstance,
+    method_name::String,
+)::Union{Nothing,MethodTable}
+    if haskey(obj.cls.methods, method_name)
+        mt_unbound = obj.cls.methods[method_name]
+        return MethodTable(mt_unbound.func_name, mt_unbound.methods, obj)
+    elseif obj.cls.superclass !== nothing
+        return get_class_method(
+            expr,
+            LoxInstance(obj.cls.superclass, obj.properties),
+            method_name,
+        )
+    else
+        throw(LoxUndefPropertyError(expr, method_name, obj.cls.name))
+    end
+end
+
 function lox_eval(expr::Parser.LoxGet, env::LoxEnvironment)
     obj = lox_eval(expr.object, env)
     if obj isa LoxInstance
         property_name = expr.property.identifier
-        if haskey(obj.properties, property_name)
-            return obj.properties[property_name]
-        elseif haskey(obj.cls.methods, property_name)
-            # Return the method table as a value.
-            mt_unbound = obj.cls.methods[property_name]
-            return MethodTable(mt_unbound.func_name, mt_unbound.methods, obj)
+        return if haskey(obj.properties, property_name)
+            obj.properties[property_name]
         else
-            throw(LoxUndefPropertyError(expr, property_name, obj.cls.name))
+            # Look for a method; if it can't find one, it will throw an error.
+            get_class_method(expr, obj, property_name)
         end
     else
         throw(

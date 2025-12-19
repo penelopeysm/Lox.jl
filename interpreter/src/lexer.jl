@@ -55,6 +55,7 @@ struct This <: Token end
 struct True <: Token end
 struct Var <: Token end
 struct While <: Token end
+struct Extends <: Token end
 struct Eof <: Token end
 
 struct LocatedToken{T<:Token}
@@ -244,6 +245,8 @@ function identifier(lexeme::AbstractString)::Token
         return Var()
     elseif lexeme == "while"
         return While()
+    elseif lexeme == "extends"
+        return Extends()
     else
         return Identifier(lexeme)
     end

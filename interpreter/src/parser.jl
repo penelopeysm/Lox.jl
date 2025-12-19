@@ -171,15 +171,18 @@ start_offset(decl::LoxFunDeclaration) = decl.start_offset
 end_offset(decl::LoxFunDeclaration) = end_offset(decl.body)
 children(decl::LoxFunDeclaration) = [decl.name, decl.parameters..., decl.body]
 
-struct LoxClassDeclaration <: LoxDeclaration
+struct LoxClassDeclaration{T<:Union{LoxVariable,Nothing}} <: LoxDeclaration
     name::LoxVariable
+    inherits_from::T
     class_start_offset::Int
     rbrace_end_offset::Int
     methods::Vector{LoxFunDeclaration{LoxClassMethod}}
 end
 start_offset(decl::LoxClassDeclaration) = decl.class_start_offset
 end_offset(decl::LoxClassDeclaration) = decl.rbrace_end_offset
-children(decl::LoxClassDeclaration) = [decl.name, decl.methods...]
+children(decl::LoxClassDeclaration{Nothing}) = [decl.name, decl.methods...]
+children(decl::LoxClassDeclaration{T}) where {T<:LoxVariable} =
+    [decl.name, decl.inherits_from, decl.methods...]
 
 #### More exprs
 
@@ -757,6 +760,15 @@ function class_declaration!(s::ParserState)::LoxClassDeclaration
     name_ltoken =
         consume_or_error!(s, Lexer.Identifier, "expected class name after 'class'")
     class_name = LoxVariable(name_ltoken)
+    # possible extends
+    inherits_from = if peek_next_unlocated(s) isa Lexer.Extends
+        consume_next!(s)
+        parent_ltoken =
+            consume_or_error!(s, Lexer.Identifier, "expected superclass name after 'extends'")
+        LoxVariable(parent_ltoken)
+    else
+        nothing
+    end
     # lbrace
     consume_or_error!(s, Lexer.LeftBrace, "expected '{' before class body")
     # methods
@@ -772,7 +784,7 @@ function class_declaration!(s::ParserState)::LoxClassDeclaration
     # rbrace
     rbrace_ltoken = consume_or_error!(s, Lexer.RightBrace, "expected '}' after class body")
     rbrace_end_offset = rbrace_ltoken.end_offset
-    return LoxClassDeclaration(class_name, class_start_offset, rbrace_end_offset, methods)
+    return LoxClassDeclaration(class_name, inherits_from, class_start_offset, rbrace_end_offset, methods)
 end
 
 function declaration!(s::ParserState)::LoxDeclaration
