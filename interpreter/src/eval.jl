@@ -81,15 +81,46 @@ function getvalue(env::LoxEnvironment, th::Parser.LoxThis)
     end
 end
 
+# TODO: This function is basically exactly the same as above, can we factor it out?
+function getvalue(env::LoxEnvironment, su::Parser.LoxSuper)
+    if su.env_index == -1
+        error("unreachable: 'super' could not be statically resolved")
+    else
+        # Use the env_index to find the correct environment
+        target_env = env
+        for _ = 1:su.env_index
+            if target_env.parent_env === nothing
+                error(
+                    "internal error: `super` has env_index $(su.env_index) but environment chain is too short",
+                )
+            end
+            target_env = target_env.parent_env
+        end
+        if haskey(target_env.vars, "super")
+            return target_env.vars["super"]
+        else
+            @show su.env_index
+            @show keys(target_env.vars)
+            @show keys(target_env.parent_env.vars)
+            # @show keys(target_env.parent_env.parent_env.vars)
+            # @show keys(target_env.parent_env.parent_env.parent_env.vars)
+            error("internal error: `super` not bound")
+        end
+    end
+end
+
 struct UnlocatedThis end # Dummy struct.
+struct UnlocatedSuper end # Dummy struct.
 function setvalue!(
     env::LoxEnvironment,
-    var::Union{Parser.LoxVariable,UnlocatedThis},
+    var::Union{Parser.LoxVariable,UnlocatedThis,UnlocatedSuper},
     value::AbstractLoxValue,
     is_new_declaration::Bool,
 )
     varname = if var isa UnlocatedThis
         "this"
+    elseif var isa UnlocatedSuper
+        "super"
     else
         var.identifier
     end
@@ -321,15 +352,18 @@ struct LoxMethod{K<:Parser.LoxFunKind,T<:Union{Parser.LoxVariable,Nothing}} <: A
     body::Parser.LoxBlockStatement
     # Capture the environment where the function was defined
     env::LoxEnvironment
+    # store `super` as well since that needs to be captured at the point where the method
+    # is defined
+    super::Union{Nothing,AbstractLoxValue}
 
-    LoxMethod(decl::Parser.LoxFunDeclaration, env::LoxEnvironment) =
-        new{typeof(decl.kind),typeof(decl.name)}(decl.kind, decl.name, decl.parameters, decl.body, env)
+    LoxMethod(decl::Parser.LoxFunDeclaration, env::LoxEnvironment, super) =
+        new{typeof(decl.kind),typeof(decl.name)}(decl.kind, decl.name, decl.parameters, decl.body, env, super)
     LoxMethod(expr::Parser.LoxFunExpr, env::LoxEnvironment) =
-        new{Parser.LoxAnonFunction,Nothing}(Parser.LoxAnonFunction(), nothing, expr.parameters, expr.body, env)
+        new{Parser.LoxAnonFunction,Nothing}(Parser.LoxAnonFunction(), nothing, expr.parameters, expr.body, env, nothing)
 
     # update the environment of a method
     LoxMethod(m::LoxMethod{K,T}, new_env::LoxEnvironment) where {K,T} =
-        new{K,T}(m.kind, m.name, m.parameters, m.body, new_env)
+        new{K,T}(m.kind, m.name, m.parameters, m.body, new_env, m.super)
 end
 
 struct NativeMethod{F} <: AbstractMethod
@@ -448,8 +482,13 @@ end
 function define_class!(env::LoxEnvironment, class_decl::Parser.LoxClassDeclaration)
     classname = class_decl.name.identifier
     clean_env = LoxEnvironment(nothing, Dict{String,Any}())
+    super = if class_decl.inherits_from === nothing
+        nothing
+    else
+        getvalue(env, class_decl.inherits_from)
+    end
     for method in class_decl.methods
-        define_method!(clean_env, method.name, LoxMethod(method, env))
+        define_method!(clean_env, method.name, LoxMethod(method, env, super))
     end
     # Now convert the clean_env into a Dict{String,MethodTable}
     methods = Dict{String,MethodTable}(clean_env.vars)
@@ -547,15 +586,17 @@ Errors.get_offset(err::LoxUndefVarError) =
 Errors.get_message(err::LoxUndefVarError) =
     "undefined variable: `$(err.variable.identifier)`"
 
-struct LoxUndefPropertyError <: LoxEvalError
-    get_expr::Parser.LoxGet
+struct LoxUndefPropertyError{T<:Union{Parser.LoxGet,Parser.LoxSuper}} <: LoxEvalError
+    get_or_super_expr::T
     property_name::String
     class_name::String
 end
 Errors.get_offset(err::LoxUndefPropertyError) =
-    (Parser.start_offset(err.get_expr), Parser.end_offset(err.get_expr))
-Errors.get_message(err::LoxUndefPropertyError) =
+    (Parser.start_offset(err.get_or_super_expr), Parser.end_offset(err.get_or_super_expr))
+Errors.get_message(err::LoxUndefPropertyError{Parser.LoxGet}) =
     "instance of $(err.class_name) has no property '$(err.property_name)'"
+Errors.get_message(err::LoxUndefPropertyError{Parser.LoxSuper}) =
+    "the superclass $(err.class_name) has no method '$(err.property_name)'"
 
 struct LoxUnexpectedReturnError <: LoxEvalError
     return_stmt::Parser.LoxReturnStatement
@@ -666,9 +707,17 @@ function _lox_invoke(
     func::LoxMethod,
     arg_values::Vector{<:AbstractLoxValue},
 )
+    # If there's a `super`, bind it
+    super_env = if func.super !== nothing
+        e = LoxEnvironment(func.env, Dict{String,Any}())
+        setvalue!(e, UnlocatedSuper(), func.super, true)
+        e
+    else
+        func.env
+    end
     # Regenerate the function's original environment (but create an inner
     # one for the function call itself).
-    new_env = LoxEnvironment(func.env, Dict{String,Any}())
+    new_env = LoxEnvironment(super_env, Dict{String,Any}())
     # Bind the arguments
     for (param, arg_value) in zip(func.parameters, arg_values)
         setvalue!(new_env, param, arg_value, true)
@@ -778,7 +827,7 @@ function lox_eval(expr::Parser.LoxCall, env::LoxEnvironment)
     return if callee isa MethodTable
         func = resolve_method(expr, callee, nargs)
         # supplement the function's stored environment with `this`, if it's a class method
-        if func isa LoxMethod{Parser.LoxClassMethod}
+        if func isa LoxMethod{<:Union{Parser.LoxClassMethod,Parser.LoxSubClassMethod}}
             new_env = LoxEnvironment(func.env, Dict{String,Any}())
             setvalue!(new_env, UnlocatedThis(), callee.this, true)
             func = LoxMethod(func, new_env)
@@ -800,6 +849,7 @@ function get_class_method(
     expr::Parser.LoxExpr,
     obj::LoxInstance,
     method_name::String,
+    original_class_name::String, # for error messages
 )::Union{Nothing,MethodTable}
     if haskey(obj.cls.methods, method_name)
         mt_unbound = obj.cls.methods[method_name]
@@ -809,9 +859,10 @@ function get_class_method(
             expr,
             LoxInstance(obj.cls.superclass, obj.properties),
             method_name,
+            original_class_name,
         )
     else
-        throw(LoxUndefPropertyError(expr, method_name, obj.cls.name))
+        throw(LoxUndefPropertyError(expr, method_name, original_class_name))
     end
 end
 
@@ -823,13 +874,30 @@ function lox_eval(expr::Parser.LoxGet, env::LoxEnvironment)
             obj.properties[property_name]
         else
             # Look for a method; if it can't find one, it will throw an error.
-            get_class_method(expr, obj, property_name)
+            get_class_method(expr, obj, property_name, obj.cls.name)
         end
     else
         throw(
             LoxTypeError(
                 expr.object,
                 "attempted to get property on non-instance value of type $(lox_repr_type(obj))",
+            ),
+        )
+    end
+end
+
+function lox_eval(expr::Parser.LoxSuper, env::LoxEnvironment)
+    superclass = getvalue(env, expr)
+    if superclass isa LoxClass
+        # check if it does have that method(table) and if so return it. We can't
+        # resolve methods at this point because we don't know the arity yet.
+        method_name = expr.method.identifier
+        return get_class_method(expr, LoxInstance(superclass, Dict{String,AbstractLoxValue}()), method_name, superclass.name)
+    else
+        throw(
+            LoxTypeError(
+                expr,
+                "attempted to use 'super' in a class with no superclass",
             ),
         )
     end
@@ -865,7 +933,7 @@ function lox_exec(stmt::Parser.LoxVarDeclaration{<:Parser.LoxExpr}, env::LoxEnvi
     return env
 end
 function lox_exec(decl::Parser.LoxFunDeclaration, env::LoxEnvironment)
-    define_method!(env, decl.name, LoxMethod(decl, env))
+    define_method!(env, decl.name, LoxMethod(decl, env, nothing))
     return env
 end
 function lox_exec(decl::Parser.LoxClassDeclaration, env::LoxEnvironment)

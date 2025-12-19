@@ -111,6 +111,8 @@ The interpreter contains several differences from the book (mainly because I wan
       ^^^^^^^^^^^^^^ cannot access private member '_private' outside of its class
   ```
 
+- Instead of `class A < B { ... }` for inheritance, I implemented `class A extends B { ... }`.
+
 ## Would I recommend Julia for compiler work?
 
 No way, unfortunately.

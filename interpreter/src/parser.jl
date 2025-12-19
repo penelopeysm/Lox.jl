@@ -70,6 +70,16 @@ start_offset(t::LoxThis) = t.start_offset
 end_offset(t::LoxThis) = t.end_offset
 children(::LoxThis) = LoxExprOrDecl[]
 
+mutable struct LoxSuper <: LoxExpr
+    const start_offset::Int
+    const method::LoxVariable
+    env_index::Int # -1 for unresolved; otherwise indicates the number of scopes out
+    LoxSuper(start_offset::Int, method::LoxVariable) = new(start_offset, method, -1)
+end
+start_offset(s::LoxSuper) = s.start_offset
+end_offset(s::LoxSuper) = end_offset(s.method)
+children(s::LoxSuper) = [s.method]
+
 ##### Decls
 
 struct LoxVarDeclaration{Tex<:Union{LoxExpr,Nothing}} <: LoxDeclaration
@@ -156,6 +166,7 @@ children(stmt::LoxBlockStatement) = stmt.statements
 abstract type LoxFunKind end
 struct LoxNamedFunction <: LoxFunKind end
 struct LoxClassMethod <: LoxFunKind end
+struct LoxSubClassMethod <: LoxFunKind end # classmethod on a class that inherits
 struct LoxAnonFunction <: LoxFunKind end # not used in parser, but in evaluation
 
 struct LoxFunDeclaration{K<:LoxFunKind} <: LoxDeclaration
@@ -176,7 +187,7 @@ struct LoxClassDeclaration{T<:Union{LoxVariable,Nothing}} <: LoxDeclaration
     inherits_from::T
     class_start_offset::Int
     rbrace_end_offset::Int
-    methods::Vector{LoxFunDeclaration{LoxClassMethod}}
+    methods::Vector{LoxFunDeclaration}
 end
 start_offset(decl::LoxClassDeclaration) = decl.class_start_offset
 end_offset(decl::LoxClassDeclaration) = decl.rbrace_end_offset
@@ -411,6 +422,7 @@ to_sexp(expr::LoxSet) =
     to_sexp(expr.value_expression) *
     ")"
 to_sexp(expr::LoxThis) = "this"
+to_sexp(expr::LoxSuper) = "(super " * to_sexp(expr.method) * ")"
 to_sexp(cls_decl::LoxClassDeclaration) =
     "(class " *
     to_sexp(cls_decl.name) *
@@ -640,6 +652,16 @@ function primary!(s::ParserState)::LoxExpr
     elseif next_token isa Lexer.This
         consume_next!(s)
         return LoxThis(next_ltoken.start_offset, next_ltoken.end_offset)
+    elseif next_token isa Lexer.Super
+        super = consume_next!(s)
+        consume_or_error!(
+            s,
+            Lexer.Dot,
+            "expected '.' after 'super' keyword",
+        )
+        method_ltoken =
+            consume_or_error!(s, Lexer.Identifier, "expected superclass method name")
+        return LoxSuper(super.start_offset, LoxVariable(method_ltoken))
     else
         # parse failure
         throw(LoxParseError(next_ltoken.end_offset, "Parse error: " * string(next_token)))
@@ -772,13 +794,18 @@ function class_declaration!(s::ParserState)::LoxClassDeclaration
     # lbrace
     consume_or_error!(s, Lexer.LeftBrace, "expected '{' before class body")
     # methods
-    methods = LoxFunDeclaration{LoxClassMethod}[]
+    methods = LoxFunDeclaration[]
+    kind = if inherits_from === nothing
+        LoxClassMethod()
+    else
+        LoxSubClassMethod()
+    end
     while !(
         peek_next_unlocated(s) isa Lexer.RightBrace || peek_next_unlocated(s) isa Lexer.Eof
     )
         name, params, _, body =
             fun_declaration_no_fun!(s)
-        method_decl = LoxFunDeclaration(name, params, name.start_offset, body, LoxClassMethod())
+        method_decl = LoxFunDeclaration(name, params, name.start_offset, body, kind)
         push!(methods, method_decl)
     end
     # rbrace

@@ -14,10 +14,11 @@ class Swan extends Animal {}
 
 class TrumpeterSwan extends Swan {
     speak () {
+        super.speak();
         print "HOOOOOONK!";
     }
 }
 
 Dog().speak();            // Woof!
 Swan().speak();           // I'm making some noise!
-TrumpeterSwan().speak();  // HOOOOOONK!
+TrumpeterSwan().speak();  // I'm making some noise! HOOOOOONK!

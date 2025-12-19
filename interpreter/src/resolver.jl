@@ -72,15 +72,20 @@ function _resolve!(fun::P.LoxFunDeclaration{P.LoxNamedFunction}, scope::LoxScope
     end
     _resolve!(fun.body, param_scope, nothing, in_class)
 end
-function _resolve!(fun::P.LoxFunDeclaration{P.LoxClassMethod}, scope::LoxScope, forbidden, ::Bool)
+function _resolve!(fun::P.LoxFunDeclaration{<:Union{P.LoxClassMethod,P.LoxSubClassMethod}}, scope::LoxScope, forbidden, ::Bool)
     this_scope = LoxScope(Set{String}(["this"]), scope)
-    param_scope = LoxScope(Set{String}(), this_scope)
+    super_scope = if fun.kind isa P.LoxClassMethod
+        this_scope
+    else
+        LoxScope(Set{String}(["super"]), this_scope)
+    end
+    param_scope = LoxScope(Set{String}(), super_scope)
     for param in fun.parameters
         push!(param_scope.variables, param.identifier)
     end
     _resolve!(fun.body, param_scope, forbidden, true)
 end
-function _resolve!(cls::P.LoxClassDeclaration, scope::LoxScope, in_class::Nothing)
+function _resolve!(cls::P.LoxClassDeclaration, scope::LoxScope, ::Union{String,Nothing}, in_class::Bool)
     push!(scope.variables, cls.name.identifier)
     _resolve!(cls.name, scope, nothing, in_class)
     if cls.inherits_from !== nothing
@@ -135,6 +140,18 @@ function _resolve!(th::P.LoxThis, scope::LoxScope, ::Union{String,Nothing}, ::Bo
     while current_scope !== nothing
         if "this" in current_scope.variables
             th.env_index = count
+            return
+        end
+        current_scope = current_scope.parent
+        count += 1
+    end
+end
+function _resolve!(su::P.LoxSuper, scope::LoxScope, ::Union{String,Nothing}, ::Bool)
+    current_scope = scope
+    count = 0
+    while current_scope !== nothing
+        if "super" in current_scope.variables
+            su.env_index = count
             return
         end
         current_scope = current_scope.parent

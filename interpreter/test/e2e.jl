@@ -185,7 +185,13 @@ end
         )
         ftest(
             "class_inheritance.lox",
-            ["Woof!\nI'm making some noise!\nHOOOOOONK!"],
+            ["Woof!\nI'm making some noise!\nI'm making some noise!\nHOOOOOONK!"],
+            String[],
+            0,
+        )
+        ftest(
+            "class_super_complex.lox",
+            ["A method"],
             String[],
             0,
         )
